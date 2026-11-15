@@ -1,0 +1,53 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#d7f1f4', 'primaryTextColor': '#0c1b2a', 'primaryBorderColor': '#0e8f9e', 'lineColor': '#3a4f63', 'secondaryColor': '#e3f1fa', 'tertiaryColor': '#fff7f4', 'fontFamily': 'Segoe UI, Arial'}}}%%
+flowchart LR
+  subgraph SRC["Result sources — synthetic in prototype"]
+    LAB["labs-mock / screening feed"]
+    HIE["HAPI FHIR or Azure Health Data Services<br/>Malaffi stand-in"]
+  end
+
+  subgraph BUS["Events"]
+    WH["Webhook / Event Grid"]
+    SB["Service Bus / local queue"]
+  end
+
+  subgraph ORCH["Rabt orchestrator — FastAPI"]
+    SM["Case state machine"]
+    CO["Coordinator supervisor"]
+    HITL["HITL gates"]
+  end
+
+  subgraph AG["Agents"]
+    DET["Deterministic<br/>DQ · Triage · Ownership<br/>Escalation · Navigator · Closure"]
+    LLM["LLM-assisted via Agent Framework<br/>Comms · Reassurance · E-consult"]
+  end
+
+  subgraph FOUNDRY["Azure AI Foundry"]
+    AOAI["Azure OpenAI chat"]
+    CS["Content Safety"]
+    AIS["AI Search KB"]
+  end
+
+  subgraph MCP["MCP tool servers"]
+    MF["fhir-mcp"]
+    MD["directory-mcp"]
+    MM["messaging-mcp"]
+  end
+
+  subgraph UI["Apps"]
+    PAT["Patient app — Sehatna role"]
+    BRD["Clinician / coordinator board"]
+  end
+
+  LAB --> HIE
+  HIE --> WH --> SB --> CO
+  CO --> SM
+  CO --> DET
+  CO --> LLM
+  LLM --> AOAI
+  LLM --> CS
+  LLM --> AIS
+  CO --> MCP
+  CO --> HITL
+  HITL --> BRD
+  CO --> PAT
+  CO --> BRD

@@ -1,0 +1,26 @@
+en:
+  body: >
+    {first_name_token}, your screening result needs a next step.
+    Urgency: {urgency}. This is not a diagnosis. Please {next_step}.
+  teachback:
+    - id: q1
+      prompt: What should you do next?
+      choices: ["Ignore the message", "confirm understanding and book a follow-up", "Diagnose yourself online"]
+      correct: "confirm understanding and book a follow-up"
+    - id: q2
+      prompt: How soon?
+      choices: ["No rush", "As guided by the urgency on your card", "Never"]
+      correct: "As guided by the urgency on your card"
+ar:
+  body: >
+    {first_name_token}، نتيجتك تحتاج خطوة تالية.
+    الاستعجال: {urgency}. هذا ليس تشخيصاً. يرجى {next_step}.
+  teachback:
+    - id: q1
+      prompt: ماذا يجب أن تفعل بعد ذلك؟
+      choices: ["تجاهل الرسالة", "تأكيد الفهم وحجز متابعة", "تشخيص نفسك عبر الإنترنت"]
+      correct: "تأكيد الفهم وحجز متابعة"
+    - id: q2
+      prompt: متى؟
+      choices: ["بدون استعجال", "حسب مستوى الاستعجال في بطاقتك", "أبداً"]
+      correct: "حسب مستوى الاستعجال في بطاقتك"

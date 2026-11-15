@@ -1,0 +1,36 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'actorBkg': '#d7f1f4', 'actorBorder': '#0e8f9e', 'actorTextColor': '#0c1b2a', 'signalColor': '#3a4f63', 'fontFamily': 'Segoe UI, Arial'}}}%%
+sequenceDiagram
+  participant Lab as labs-mock / FHIR
+  participant API as Orchestrator
+  participant DQ as DQ agent
+  participant Tri as Triage agent
+  participant Own as Ownership
+  participant HITL as HITL / GP
+  participant Comms as Comms agent
+  participant Foundry as Azure OpenAI Foundry
+  participant Pat as Patient app
+  participant Nav as Navigator
+  participant Close as Closure verifier
+
+  Lab->>API: Observation HbA1c
+  API->>DQ: check
+  DQ-->>API: ok
+  API->>Tri: rules
+  Tri-->>API: URGENT
+  API->>Own: assign GP
+  Own-->>API: AwaitingOwner
+  HITL->>API: accept ownership
+  API->>Comms: draft message
+  alt Foundry configured
+    Comms->>Foundry: rewrite template
+    Foundry-->>Comms: text + Content Safety
+  else Local demo
+    Comms-->>API: static approved template
+  end
+  API->>Pat: result card + teach-back
+  Pat->>API: teach-back pass
+  API->>Nav: in-network options
+  Pat->>API: book
+  HITL->>API: attended + outcome
+  API->>Close: evidence gate
+  Close-->>API: Closed

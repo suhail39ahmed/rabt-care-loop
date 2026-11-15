@@ -1,0 +1,28 @@
+en:
+  body: >
+    {first_name_token}, your FIT screening needs a confirmatory next step.
+    Urgency: {urgency}. A positive FIT does not mean you have cancer.
+    This is not a diagnosis. Next step: {next_step}.
+  teachback:
+    - id: q1
+      prompt: What does a positive FIT mean?
+      choices: ["You definitely have cancer", "More checks may be needed — not a diagnosis", "Nothing"]
+      correct: "More checks may be needed — not a diagnosis"
+    - id: q2
+      prompt: What should you do next?
+      choices: ["confirm understanding and book a follow-up", "Start chemotherapy", "Wait a year"]
+      correct: "confirm understanding and book a follow-up"
+ar:
+  body: >
+    {first_name_token}، فحص الدم الخفي في البراز يحتاج خطوة تأكيدية.
+    الاستعجال: {urgency}. النتيجة الإيجابية لا تعني أن لديك سرطاناً.
+    هذا ليس تشخيصاً. الخطوة التالية: {next_step}.
+  teachback:
+    - id: q1
+      prompt: ماذا تعني نتيجة FIT الإيجابية؟
+      choices: ["لديك سرطان حتماً", "قد تحتاج فحوصات إضافية — وليس تشخيصاً", "لا شيء"]
+      correct: "قد تحتاج فحوصات إضافية — وليس تشخيصاً"
+    - id: q2
+      prompt: ماذا يجب أن تفعل؟
+      choices: ["تأكيد الفهم وحجز متابعة", "بدء علاج كيميائي", "الانتظار سنة"]
+      correct: "تأكيد الفهم وحجز متابعة"

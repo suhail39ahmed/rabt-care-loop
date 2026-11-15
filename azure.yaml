@@ -1,0 +1,13 @@
+# azd project skeleton — provision when Azure subscription is ready
+name: rabt
+metadata:
+  template: rabt@0.1.0
+services:
+  orchestrator:
+    project: ./services/orchestrator
+    host: containerapp
+    language: python
+  web:
+    project: ./apps/web
+    host: staticwebapp
+    language: ts

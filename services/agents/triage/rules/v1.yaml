@@ -1,0 +1,63 @@
+# ILLUSTRATIVE ONLY — not clinical guidance. Requires DoH / clinician sign-off.
+version: "1.0-illustrative"
+disclaimer: "Illustrative thresholds for prototype demonstration only."
+rules:
+  - id: BP-CRIT
+    loinc_any: ["85354-9", "8480-6"]
+    field: systolic
+    op: ">="
+    value: 180
+    urgency: CRITICAL
+    pathway: gp_review_critical
+  - id: BP-CRIT-DIA
+    loinc_any: ["85354-9", "8462-4"]
+    field: diastolic
+    op: ">="
+    value: 120
+    urgency: CRITICAL
+    pathway: gp_review_critical
+  - id: HBA1C-HIGH
+    loinc_any: ["4548-4"]
+    field: value
+    op: ">="
+    value: 6.5
+    urgency: URGENT
+    pathway: confirmatory_test
+  - id: GLUCOSE-HIGH
+    loinc_any: ["2339-0", "2345-7"]
+    field: value
+    op: ">="
+    value: 200
+    urgency: URGENT
+    pathway: confirmatory_test
+  - id: LIPIDS-HIGH
+    loinc_any: ["2093-3", "13457-7"]
+    field: value
+    op: ">="
+    value: 240
+    urgency: ROUTINE
+    pathway: gp_review
+  - id: FIT-POS
+    loinc_any: ["2335-8", "29771-3"]
+    field: value_text
+    op: "eq"
+    value: "positive"
+    urgency: URGENT
+    pathway: specialist_gastro
+  - id: CERVICAL-ABN
+    loinc_any: ["10524-7"]
+    field: value_text
+    op: "contains"
+    value: "abnormal"
+    urgency: URGENT
+    pathway: specialist_gyn
+  - id: MAMMO-BIRADS4
+    loinc_any: ["24606-6"]
+    field: value_text
+    op: "contains"
+    value: "BI-RADS 4"
+    urgency: URGENT
+    pathway: specialist_breast
+default:
+  urgency: NEEDS_HUMAN
+  pathway: human_triage

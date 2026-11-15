@@ -1,0 +1,42 @@
+[project]
+name = "rabt"
+version = "0.1.0"
+description = "Rabt – AI Care-Loop Orchestrator for Abu Dhabi screening programmes"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
+  "pydantic>=2.9.0",
+  "pydantic-settings>=2.6.0",
+  "httpx>=0.27.0",
+  "pyyaml>=6.0.2",
+  "python-multipart>=0.0.12",
+  "aiosqlite>=0.20.0",
+  "mcp>=1.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0",
+  "pytest-asyncio>=0.24.0",
+  "hypothesis>=6.115.0",
+  "ruff>=0.7.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["services/orchestrator/app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["services/orchestrator/tests", "tests"]
+pythonpath = ["services/orchestrator", "services", "."]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"

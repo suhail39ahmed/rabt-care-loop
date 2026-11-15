@@ -1,0 +1,7 @@
+# Published assumptions for the fragmented-process baseline simulation — not a measurement of ADPHC.
+name: fragmented_baseline
+single_notification_attempt: true
+ownership_handshake: false
+network_aware_routing: false
+teachback: false
+evidence_gated_closure: false

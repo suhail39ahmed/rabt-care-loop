@@ -1,0 +1,168 @@
+{
+  "title": "Rabt proficiency assessment",
+  "passPercent": 80,
+  "timeHintMin": 10,
+  "instructions": "Closed-book style. One answer each. Pass at 80%. Covers product, workflow, delegation, HITL, architecture.",
+  "questions": [
+    {
+      "id": "a1",
+      "topic": "product",
+      "q": "Rabt’s core promise is…",
+      "choices": [
+        "Predict who to screen next (#4)",
+        "Every actionable result gets an owner, next step, and documented closure",
+        "Replace Malaffi entirely",
+        "Diagnose diabetes from HbA1c alone"
+      ],
+      "answer": 1,
+      "why": "Challenge #5 — close the screening-to-care loop with ownership and evidence."
+    },
+    {
+      "id": "a2",
+      "topic": "product",
+      "q": "Patient-facing Rabt UI stands in for…",
+      "choices": ["Databricks", "Sehatna-style patient app", "Service Bus", "Synthea"],
+      "answer": 1,
+      "why": "Prototype plays the Sehatna role; real Sehatna is the pilot path."
+    },
+    {
+      "id": "a3",
+      "topic": "workflow",
+      "q": "Who/what forbids New → Closed?",
+      "choices": ["The LLM", "The state machine ALLOWED map", "Mailpit", "next-intl"],
+      "answer": 1,
+      "why": "state_machine.transition raises IllegalTransition."
+    },
+    {
+      "id": "a4",
+      "topic": "workflow",
+      "q": "CRITICAL BP first moves to…",
+      "choices": ["Closed", "Understood", "Escalated", "Booked"],
+      "answer": 2,
+      "why": "Triaged → Escalated; ladder starts; no LLM."
+    },
+    {
+      "id": "a5",
+      "topic": "workflow",
+      "q": "Evidence-gated closure needs…",
+      "choices": [
+        "Any LLM saying ‘done’",
+        "Attended encounter + outcome (or human reason with 4-eyes)",
+        "Only a booked slot",
+        "A thumbs-up emoji"
+      ],
+      "answer": 1,
+      "why": "Closure verifier — target 0 false closures."
+    },
+    {
+      "id": "a6",
+      "topic": "delegation",
+      "q": "The supervisor that delegates is…",
+      "choices": ["Navigator", "Coordinator", "Mailpit", "Synthea"],
+      "answer": 1,
+      "why": "coordinator.py is the supervisor."
+    },
+    {
+      "id": "a7",
+      "topic": "delegation",
+      "q": "Urgency classification is done by…",
+      "choices": ["Comms LLM", "Triage YAML rules (deterministic)", "Patient teach-back", "Foundry Agent Service only"],
+      "answer": 1,
+      "why": "Deterministic code decides; LLM explains."
+    },
+    {
+      "id": "a8",
+      "topic": "delegation",
+      "q": "Delegation depth hard limit is…",
+      "choices": ["Unlimited", "≤ 2", "Exactly 10", "0 forever"],
+      "answer": 1,
+      "why": "contracts.py Field(ge=0, le=2)."
+    },
+    {
+      "id": "a9",
+      "topic": "delegation",
+      "q": "Which stack is correct for LLM text?",
+      "choices": [
+        "LangChain + OpenAI.com only",
+        "Microsoft Agent Framework → Azure OpenAI in Foundry (optional; templates otherwise)",
+        "Random GPT with no guardrails",
+        "No templates allowed"
+      ],
+      "answer": 1,
+      "why": "Not LangChain; Foundry optional for demo."
+    },
+    {
+      "id": "a10",
+      "topic": "hitl",
+      "q": "CRITICAL SMS must…",
+      "choices": [
+        "Include systolic/diastolic values",
+        "Omit result values and avoid LLM on the path",
+        "Be written only in English slang",
+        "Auto-close the case"
+      ],
+      "answer": 1,
+      "why": "Safety: no values on insecure channel; deterministic ladder."
+    },
+    {
+      "id": "a11",
+      "topic": "hitl",
+      "q": "Teach-back fails twice →",
+      "choices": ["Closed", "HumanCallback", "DataQuery", "Booked"],
+      "answer": 1,
+      "why": "HITL callback gate."
+    },
+    {
+      "id": "a12",
+      "topic": "hitl",
+      "q": "On approval timeout, Rabt…",
+      "choices": [
+        "Auto-closes as success",
+        "Applies safe default (e.g. keep_open) — never silent close",
+        "Deletes the patient",
+        "Marks NORMAL"
+      ],
+      "answer": 1,
+      "why": "SAFE_DEFAULTS in hitl.py."
+    },
+    {
+      "id": "a13",
+      "topic": "architecture",
+      "q": "MCP servers in Rabt are for…",
+      "choices": [
+        "Unrestricted DB wipe tools",
+        "Scoped tools (FHIR / directory / messaging)",
+        "Training Synthea",
+        "Replacing the state machine"
+      ],
+      "answer": 1,
+      "why": "Least-privilege tool use via MCP."
+    },
+    {
+      "id": "a14",
+      "topic": "architecture",
+      "q": "Local demo without Azure keys uses…",
+      "choices": [
+        "Nothing — app won’t start",
+        "Approved AR/EN YAML templates",
+        "Only LangChain memory",
+        "Live Malaffi"
+      ],
+      "answer": 1,
+      "why": "Templates first; Foundry when env configured."
+    },
+    {
+      "id": "a15",
+      "topic": "product",
+      "q": "Timeline labels fact / calculated / AI exist because…",
+      "choices": [
+        "Decoration",
+        "Responsible AI — separate recorded facts, rules, and generated text",
+        "FHIR forbids timelines",
+        "Judges dislike colours"
+      ],
+      "answer": 1,
+      "why": "Inception42 / RAI guidance: keep them visibly separate."
+    }
+  ]
+}

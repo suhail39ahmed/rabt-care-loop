@@ -1,0 +1,12 @@
+# Illustrative injected failure rates for benchmark (see solution plan §11.1)
+unreachable_first_channel: 0.15
+wrong_language: 0.08
+low_literacy: 0.10
+referral_rejected_capacity: 0.07
+out_of_network_first_choice: 0.12
+provider_transfer: 0.04
+missing_unit_or_value: 0.05
+contradictory_same_day: 0.02
+consent_withdrawn: 0.03
+no_show: 0.10
+attempted_premature_closure: 0.05

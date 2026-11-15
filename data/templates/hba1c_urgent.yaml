@@ -1,0 +1,29 @@
+# Approved template — illustrative. Not a diagnosis.
+en:
+  body: >
+    {first_name_token}, your recent screening HbA1c needs a follow-up.
+    Urgency: {urgency}. This is not a diagnosis. Next step: {next_step}.
+    A care team member owns your case until it is closed with evidence.
+  teachback:
+    - id: q1
+      prompt: What should you do next?
+      choices: ["Wait and see", "confirm understanding and book a follow-up", "Start medication yourself"]
+      correct: "confirm understanding and book a follow-up"
+    - id: q2
+      prompt: How soon should you act?
+      choices: ["Sometime next year", "As guided by the urgency on your card", "Only if you feel unwell"]
+      correct: "As guided by the urgency on your card"
+ar:
+  body: >
+    {first_name_token}، نتيجة فحص السكر التراكمي تحتاج متابعة.
+    مستوى الاستعجال: {urgency}. هذا ليس تشخيصاً. الخطوة التالية: {next_step}.
+    يملك فريق الرعاية حالتك حتى تُغلق بدليل موثّق.
+  teachback:
+    - id: q1
+      prompt: ماذا يجب أن تفعل بعد ذلك؟
+      choices: ["الانتظار فقط", "تأكيد الفهم وحجز متابعة", "بدء دواء بنفسك"]
+      correct: "تأكيد الفهم وحجز متابعة"
+    - id: q2
+      prompt: متى يجب أن تتصرف؟
+      choices: ["في العام القادم", "حسب مستوى الاستعجال في بطاقتك", "فقط إذا شعرت بتوعك"]
+      correct: "حسب مستوى الاستعجال في بطاقتك"

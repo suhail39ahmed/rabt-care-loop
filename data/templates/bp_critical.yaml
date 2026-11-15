@@ -1,0 +1,10 @@
+en:
+  body: >
+    Please contact the care line now. A clinician needs to speak with you.
+    This message intentionally omits detailed values. This is not a diagnosis.
+  teachback: []
+ar:
+  body: >
+    يرجى الاتصال بخط الرعاية الآن. يحتاج طبيب للتحدث معك.
+    هذه الرسالة لا تتضمن قيماً تفصيلية عمداً. هذا ليس تشخيصاً.
+  teachback: []

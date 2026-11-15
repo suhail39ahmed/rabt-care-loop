@@ -1,0 +1,36 @@
+services:
+  hapi:
+    image: hapiproject/hapi:v7.4.0
+    ports:
+      - "8080:8080"
+    environment:
+      hapi.fhir.fhir_version: R4
+      hapi.fhir.subscription.resthook_enabled: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: rabt
+      POSTGRES_PASSWORD: rabt
+      POSTGRES_DB: rabt
+    ports:
+      - "5432:5432"
+    volumes:
+      - rabt_pg:/var/lib/postgresql/data
+
+  mailpit:
+    image: axllent/mailpit:v1.21
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+
+volumes:
+  rabt_pg:

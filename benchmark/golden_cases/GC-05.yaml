@@ -1,0 +1,9 @@
+id: GC-05
+title: Out-of-network specialist excluded from navigator options
+patient: ravi
+observation: fit_positive
+expected:
+  urgency: URGENT
+  pathway: specialist_gastro
+  exclude_provider: org-gastro-oon
+  hitl_gates: []

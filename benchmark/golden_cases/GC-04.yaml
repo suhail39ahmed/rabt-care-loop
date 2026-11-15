@@ -1,0 +1,10 @@
+id: GC-04
+title: Low-literacy teach-back failure routes to human callback
+patient: fatima
+observation: hba1c
+observation_args: { value: 7.1 }
+expected:
+  urgency: URGENT
+  states_path: [AwaitingOwner, Owned, PatientNotified, HumanCallback]
+  hitl_gates: [callback]
+  teachback_fails: 2

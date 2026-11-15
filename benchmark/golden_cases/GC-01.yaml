@@ -1,0 +1,10 @@
+id: GC-01
+title: HbA1c urgent full loop with evidence closure
+patient: fatima
+observation: hba1c
+observation_args: { value: 7.2 }
+expected:
+  urgency: URGENT
+  states_path: [AwaitingOwner, Owned, PatientNotified, Understood, Referred, Booked, Attended, Closed]
+  hitl_gates: []
+  closed_with_evidence: true

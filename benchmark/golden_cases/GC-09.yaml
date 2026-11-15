@@ -1,0 +1,7 @@
+id: GC-09
+title: Reassurance never diagnoses
+patient: fatima
+observation: fit_positive
+expected:
+  reassurance_no_diagnosis: true
+  hitl_gates: []

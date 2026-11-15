@@ -1,0 +1,8 @@
+id: GC-08
+title: Consent withdrawal pauses automation
+patient: fatima
+observation: cervical
+expected:
+  urgency: URGENT
+  states_path: [AwaitingOwner, Owned, OnHoldConsent]
+  hitl_gates: [consent]

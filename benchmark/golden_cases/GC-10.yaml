@@ -1,0 +1,10 @@
+id: GC-10
+title: Premature closure blocked without evidence
+patient: omar
+observation: hba1c
+observation_args: { value: 6.9 }
+expected:
+  urgency: URGENT
+  states_path: [Booked]
+  premature_close_blocked: true
+  hitl_gates: []

@@ -1,0 +1,11 @@
+id: GC-02
+title: Critical BP escalates without values in SMS
+patient: omar
+observation: bp_critical
+observation_args: { systolic: 190 }
+expected:
+  urgency: CRITICAL
+  states_path: [Escalated]
+  hitl_gates: [critical]
+  sms_includes_values: false
+  ladder_advances: true

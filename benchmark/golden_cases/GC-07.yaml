@@ -1,0 +1,7 @@
+id: GC-07
+title: Missing unit triggers DataQuery
+patient: omar
+observation: glucose_bad_unit
+expected:
+  states_path: [DataQuery]
+  hitl_gates: []

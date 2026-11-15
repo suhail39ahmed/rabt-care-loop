@@ -1,0 +1,8 @@
+id: GC-06
+title: Specialist rejects referral and case is re-routed
+patient: ravi
+observation: fit_positive
+expected:
+  urgency: URGENT
+  states_path: [AwaitingOwner, Owned, PatientNotified, Understood, Referred, ReferralRejected, Referred]
+  hitl_gates: []

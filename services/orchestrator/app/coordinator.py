@@ -235,6 +235,29 @@ class Coordinator:
         await self.ledger.update_case(db, case_id, messages=messages)
         return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
 
+    async def mark_unreachable(self, db: aiosqlite.Connection, case_id: str) -> dict[str, Any]:
+        """Patient did not engage after notification — escalate to human ladder."""
+        case = await self.ledger.get_case(db, case_id)
+        if not case:
+            raise KeyError(case_id)
+        await self._apply(
+            db, case_id, S(case["state"]), S.UNREACHABLE, "agent:comms", "unreachable", {}
+        )
+        await hitl.enqueue(
+            db, case_id, "unreachable", "Patient unreachable — escalate", urgency=case.get("urgency")
+        )
+        esc = DelegationResult.model_validate(
+            await escalation_agent.run(
+                {"case_id": case_id, "inputs": {"ladder_step": int(case.get("ladder_step") or 0)}}
+            )
+        )
+        await self._apply(
+            db, case_id, S.UNREACHABLE, S.ESCALATED, "agent:escalation", "unreachable ladder", esc.outputs
+        )
+        step = (esc.outputs.get("ladder") or {}).get("step") or 1
+        await self.ledger.update_case(db, case_id, ladder_step=step)
+        return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+
     async def submit_teachback(
         self, db: aiosqlite.Connection, case_id: str, answers: list[str]
     ) -> dict[str, Any]:

@@ -1,0 +1,9 @@
+id: GC-03
+title: Unreachable patient escalates to human ladder
+patient: omar
+observation: hba1c
+observation_args: { value: 7.0 }
+expected:
+  urgency: URGENT
+  states_path: [AwaitingOwner, Owned, PatientNotified, Unreachable, Escalated]
+  hitl_gates: [unreachable]

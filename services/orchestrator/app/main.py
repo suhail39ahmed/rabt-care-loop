@@ -440,21 +440,12 @@ async def plans():
 
 @app.get("/kpis")
 async def kpis():
+    from app.kpis import compute_kpis
+
     db = await ledger.connect()
     try:
         cases = await ledger.list_cases(db)
-        closed = [c for c in cases if c["state"] in {"Closed", "ClosedByHuman"}]
-        critical = [c for c in cases if c.get("urgency") == "CRITICAL"]
-        escalated = [c for c in critical if any(p.get("to") == "Escalated" for p in c.get("provenance") or [])]
-        return {
-            "total_cases": len(cases),
-            "closed": len(closed),
-            "critical_total": len(critical),
-            "critical_escalation_recall": (len(escalated) / len(critical)) if critical else 1.0,
-            "false_closures": 0,  # verifier blocks; tracked in golden tests
-            "states": {s: sum(1 for c in cases if c["state"] == s) for s in {c["state"] for c in cases}},
-            "note": "Prototype KPIs on synthetic demo seed — not real-world outcomes.",
-        }
+        return compute_kpis(cases)
     finally:
         await db.close()
 

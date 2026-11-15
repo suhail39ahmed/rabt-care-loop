@@ -53,10 +53,16 @@ class Coordinator:
                     return c
             return {"duplicate": True, "key": key}
 
-        obs = payload["observation"]
+        from agents.triage.normalize import normalize_observation
+
+        obs = normalize_observation(payload["observation"])
         patient = payload.get("patient") or {}
         plan_id = payload.get("plan_id") or patient.get("plan_id") or "plan-b"
         plan = PLANS.get(plan_id, PLANS["plan-b"])
+
+        bp_display = None
+        if obs.get("systolic") is not None or obs.get("diastolic") is not None:
+            bp_display = f"{obs.get('systolic', '—')}/{obs.get('diastolic', '—')}"
 
         case = await self.ledger.create_case(
             db,
@@ -68,10 +74,10 @@ class Coordinator:
                     "display", obs.get("code", {}).get("text", "Result")
                 ),
                 "result_value": str(
-                    (obs.get("valueQuantity") or {}).get("value")
+                    bp_display
+                    or (obs.get("valueQuantity") or {}).get("value")
                     or obs.get("valueString")
                     or (obs.get("valueCodeableConcept") or {}).get("text")
-                    or obs.get("systolic")
                     or ""
                 ),
                 "result_unit": (obs.get("valueQuantity") or {}).get("unit"),

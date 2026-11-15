@@ -8,6 +8,8 @@ from typing import Any
 import yaml
 from pydantic import BaseModel
 
+from agents.triage.normalize import normalize_observation
+
 RULES_PATH = Path(__file__).parent / "rules" / "v1.yaml"
 
 
@@ -43,6 +45,7 @@ def _match_op(op: str, left: Any, right: Any) -> bool:
 
 def triage_observation(obs: dict[str, Any]) -> TriageResult:
     """Classify an observation using versioned YAML rules."""
+    obs = normalize_observation(obs)
     cfg = _load_rules()
     version = cfg.get("version", "unknown")
     code = ""
@@ -58,6 +61,11 @@ def triage_observation(obs: dict[str, Any]) -> TriageResult:
     }
     if "valueQuantity" in obs:
         fields["value"] = obs["valueQuantity"].get("value")
+        # Standalone systolic LOINC: also treat valueQuantity as systolic
+        if code in {"8480-6"} and fields["systolic"] is None:
+            fields["systolic"] = fields["value"]
+        if code in {"8462-4"} and fields["diastolic"] is None:
+            fields["diastolic"] = fields["value"]
     if "valueString" in obs:
         fields["value_text"] = obs["valueString"]
     if "valueCodeableConcept" in obs:

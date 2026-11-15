@@ -4,21 +4,25 @@ from __future__ import annotations
 
 from typing import Any
 
+from agents.triage.normalize import normalize_observation
+
 ALLOWED_UNITS = {
     "%",
     "mg/dL",
     "mmol/L",
     "mmHg",
+    "mm[Hg]",
     "ng/mL",
 }
 
 
 def check_observation(obs: dict[str, Any], siblings: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     queries: list[str] = []
+    obs = normalize_observation(obs)
     vq = obs.get("valueQuantity")
     vs = obs.get("valueString")
     vcc = obs.get("valueCodeableConcept")
-    if not vq and not vs and not vcc and obs.get("systolic") is None:
+    if not vq and not vs and not vcc and obs.get("systolic") is None and obs.get("diastolic") is None:
         queries.append("missing_value")
     if vq:
         if vq.get("value") is None:

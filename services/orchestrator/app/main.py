@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from typing import Any
@@ -10,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from app import demo_clock
 from app.coordinator import Coordinator
 from app.demo_seed import seed_demo
 from app.hitl import ApprovalError, list_approvals, list_queue, submit_decision
@@ -25,19 +27,42 @@ _DB = os.path.join(_ROOT, "data", "rabt.db")
 ledger = Ledger(db_path=os.environ.get("RABT_DB", _DB))
 coordinator = Coordinator(ledger)
 DEMO_IDS: dict[str, str] = {}
+_tick_task: asyncio.Task | None = None
+
+
+async def _background_tick() -> None:
+    while True:
+        try:
+            db = await ledger.connect()
+            try:
+                await coordinator.tick(db)
+            finally:
+                await db.close()
+        except Exception:
+            pass
+        await asyncio.sleep(5)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global DEMO_IDS
-    # fresh demo DB each start for predictable guest mode
-    if os.path.exists(_DB) and os.environ.get("RABT_KEEP_DB") != "1":
+    global DEMO_IDS, _tick_task
+    demo_clock.reset()
+    # Delete the configured ledger path (not a hardcoded default) on startup
+    db_path = ledger.db_path
+    if os.path.exists(db_path) and os.environ.get("RABT_KEEP_DB") != "1":
         try:
-            os.remove(_DB)
+            os.remove(db_path)
         except OSError:
             pass
     DEMO_IDS = await seed_demo(ledger, coordinator)
+    _tick_task = asyncio.create_task(_background_tick())
     yield
+    if _tick_task:
+        _tick_task.cancel()
+        try:
+            await _tick_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(
@@ -104,10 +129,29 @@ async def healthz():
     return {"ok": True, "service": "rabt-orchestrator", "guest_mode": settings.guest_mode}
 
 
+@app.post("/demo/advance")
+async def demo_advance(minutes: float = 15):
+    """Fast-forward the demo clock and run one HITL/ladder tick."""
+    offset = demo_clock.advance(minutes)
+    db = await ledger.connect()
+    try:
+        tick_result = await coordinator.tick(db)
+        return {
+            "ok": True,
+            "advanced_minutes": minutes,
+            "offset_seconds": offset,
+            "now": demo_clock.now(),
+            "tick": tick_result,
+        }
+    finally:
+        await db.close()
+
+
 @app.get("/demo")
 async def demo_index():
     return {
         "banner": "Synthetic data. Demo only. Not a diagnosis. Not for clinical use.",
+        "demo_clock_offset_seconds": demo_clock.offset_seconds(),
         "personas": [
             {
                 "id": "patient-fatima",

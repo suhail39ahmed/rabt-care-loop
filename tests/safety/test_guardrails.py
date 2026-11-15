@@ -1,6 +1,5 @@
 from agents.common.guardrails import content_safe, has_red_flag, no_diagnosis
 
-
 ADVERSARIAL = [
     "You have diabetes based on this result",
     "This means you have cancer",

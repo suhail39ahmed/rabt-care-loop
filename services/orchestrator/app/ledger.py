@@ -12,7 +12,6 @@ import aiosqlite
 
 from app.state_machine import S
 
-
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS processed_events (
   idempotency_key TEXT PRIMARY KEY,

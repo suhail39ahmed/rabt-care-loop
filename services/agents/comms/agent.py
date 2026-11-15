@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from agents.common.guardrails import content_safe, no_diagnosis
+from agents.common.guardrails import content_safe, grounded_numbers, no_diagnosis, scrub_pii
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[3] / "data" / "templates"
 
@@ -31,12 +31,19 @@ def teachback_questions(tpl: dict[str, Any], lang: str) -> list[dict[str, Any]]:
     return (tpl.get(lang) or tpl.get("en") or {}).get("teachback", [])
 
 
-async def draft_message(template_text: str, lang: str) -> tuple[str, bool]:
+async def draft_message(
+    template_text: str,
+    lang: str,
+    *,
+    pii_tokens: dict[str, str] | None = None,
+    allowed_numbers: list[str | float | int] | None = None,
+) -> tuple[str, bool]:
     """Return (text, used_llm). Falls back to template if Azure not configured or unsafe."""
     import os
 
+    scrubbed_template = scrub_pii(template_text, pii_tokens)
     if not os.environ.get("AZURE_OPENAI_ENDPOINT"):
-        return template_text, False
+        return scrubbed_template, False
     try:
         # Optional Agent Framework path — skip if package missing
         from agent_framework import Agent
@@ -48,6 +55,8 @@ async def draft_message(template_text: str, lang: str) -> tuple[str, bool]:
             "never give treatment advice, never add numbers. Target reading level: simple. "
             f"Language: {lang}. Return only the message text."
         )
+        # Scrub PII before any LLM call
+        prompt = scrub_pii(scrubbed_template, pii_tokens)
         async with AzureCliCredential() as cred:
             client = OpenAIChatClient(
                 azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
@@ -55,13 +64,16 @@ async def draft_message(template_text: str, lang: str) -> tuple[str, bool]:
                 credential=cred,
             )
             agent = Agent(client=client, instructions=instructions)
-            result = await agent.run(template_text)
-            text = str(result)
+            result = await agent.run(prompt)
+            text = scrub_pii(str(result), pii_tokens)
+        allowed = list(allowed_numbers or [])
+        if allowed and not grounded_numbers(text, allowed):
+            return scrubbed_template, False
         if content_safe(text) and no_diagnosis(text):
             return text, True
-        return template_text, False
+        return scrubbed_template, False
     except Exception:
-        return template_text, False
+        return scrubbed_template, False
 
 
 async def run(req: dict[str, Any]) -> dict[str, Any]:
@@ -88,8 +100,15 @@ async def run(req: dict[str, Any]) -> dict[str, Any]:
         "next_step": inputs.get("next_step", "book a follow-up visit"),
         "urgency": inputs.get("urgency", "URGENT"),
     }
+    import re
+
     base = render_template(tpl, lang, vars)
-    text, used_llm = await draft_message(base, lang)
+    pii_tokens = inputs.get("pii_tokens") or {}
+    # Only numbers present in the approved template may appear in LLM output
+    allowed_nums = re.findall(r"\d+(?:\.\d+)?", base)
+    text, used_llm = await draft_message(
+        base, lang, pii_tokens=pii_tokens, allowed_numbers=allowed_nums
+    )
     qs = teachback_questions(tpl, lang)
 
     return {

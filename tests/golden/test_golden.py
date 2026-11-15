@@ -7,7 +7,6 @@ import tempfile
 from pathlib import Path
 
 import pytest
-
 from agents.closure.verifier import verify_closure
 from agents.common.guardrails import no_diagnosis
 from agents.navigator.scoring import score_options
@@ -25,6 +24,7 @@ from app.hitl import list_queue
 from app.ledger import Ledger
 from app.reference_data import DEMO_PATIENTS, PROVIDERS
 from app.state_machine import IllegalTransition, S, transition
+
 from tests.golden.loader import load_golden_cases
 
 

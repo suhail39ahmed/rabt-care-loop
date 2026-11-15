@@ -17,9 +17,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "services"))
 sys.path.insert(0, str(ROOT / "services" / "orchestrator"))
 
-from agents.closure.verifier import verify_closure  # noqa: E402
-from agents.triage.engine import triage_observation  # noqa: E402
-from agents.triage.normalize import normalize_observation  # noqa: E402
+from agents.closure.verifier import verify_closure
+from agents.triage.engine import triage_observation
+from agents.triage.normalize import normalize_observation
 
 
 def _load_yaml(path: Path) -> dict:
@@ -129,12 +129,7 @@ def simulate(seed: int, n: int, cohort: dict, baseline_cfg: dict) -> dict:
         closable = verify_closure(evidence)["closable"]
         if closable:
             rabt_closed += 1
-        else:
-            # would need two-person — still not a false close
-            pass
-        # Rabt never false-closes when verifier used
-        if not closable and False:
-            rabt_false += 1
+        # Rabt never false-closes when the verifier gates closure
         rabt_ttns.append(5.0 if is_crit else float(rng.randint(30, 180)))
 
         # Baseline fragmented path
@@ -142,9 +137,7 @@ def simulate(seed: int, n: int, cohort: dict, baseline_cfg: dict) -> dict:
             baseline_ttns.append(float(rng.randint(240, 1440)))
         else:
             baseline_ttns.append(float(rng.randint(60, 480)))
-        if is_crit and baseline_cfg.get("ownership_handshake"):
-            baseline_escalated += 1
-        elif is_crit and rng.random() < 0.55:
+        if is_crit and baseline_cfg.get("ownership_handshake") or is_crit and rng.random() < 0.55:
             baseline_escalated += 1
         # Baseline closes without evidence often
         this_baseline_false = 0

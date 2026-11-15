@@ -1,0 +1,30 @@
+# Render Blueprint — one replica each (SQLite reseed on API start)
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: rabt-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./services/orchestrator/Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    envVars:
+      - key: RABT_DB
+        value: /tmp/rabt.db
+      - key: CORS_ORIGINS
+        sync: false
+      - key: RABT_INGEST_SECRET
+        generateValue: true
+      - key: GUEST_MODE
+        value: "true"
+
+  - type: web
+    name: rabt-web
+    runtime: docker
+    plan: free
+    dockerfilePath: ./apps/web/Dockerfile
+    dockerContext: ./apps/web
+    healthCheckPath: /
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        sync: false

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 # Illustrative placeholders — not ADPHC-approved SLAs
@@ -22,7 +22,7 @@ def assign_owner(patient: dict[str, Any], urgency: str) -> dict[str, Any]:
     else:
         ref = "Practitioner/coordinator-mariam"
         name = "Mariam (Screening Coordinator)"
-    due = datetime.now(timezone.utc) + timedelta(hours=SLA_HOURS.get(urgency, 48))
+    due = datetime.now(UTC) + timedelta(hours=SLA_HOURS.get(urgency, 48))
     return {
         "owner_id": ref,
         "owner_name": name,

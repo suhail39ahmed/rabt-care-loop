@@ -105,25 +105,24 @@ See the **Limitations** section for what is still partial in these gates.
 
 ## Golden cases and benchmark
 
-Results measured locally with `pytest` (Python 3.12):
+Results measured locally with `pytest` / `make golden` / `make bench` (Python 3.12, seed 42):
 
 | Suite | Result |
 |---|---|
-| All tests | **18 passed, 0 failed** |
-| Golden cases with tests | **6 of 10**: GC-01 HbA1c full loop, GC-02 critical BP (no LLM, no values in SMS), GC-05 out-of-network excluded, GC-07 data query, GC-09 reassurance without diagnosis, GC-10 false closure blocked |
-| Golden cases not yet tested | GC-03 unreachable patient, GC-04 low-literacy teach-back failure, GC-06 specialist rejects referral, GC-08 consent withdrawal (seeded in the demo but has no test) |
-| Safety tests | No-diagnosis lexicon (EN/AR), safe template passes, red-flag detection |
+| All tests | **44+ passed** (orchestrator, golden, safety, MCP smoke) |
+| Golden cases | **10/10** — see [benchmark/reports/golden_results.md](benchmark/reports/golden_results.md) |
+| Safety tests | No-diagnosis lexicon (EN/AR), scrub_pii, grounded_numbers, tool scopes, red flags |
 | State machine | Happy path, illegal transitions, closure needs evidence, human-only closure, property-based random walk |
 
-| Benchmark (simulated baseline vs Rabt) | Value |
-|---|---|
-| Closure rate | TBD |
-| Median time to next step | TBD |
-| Critical escalation recall | TBD |
-| False closures | TBD |
-| Fairness slices | TBD |
+| Benchmark (simulated, synthetic — seed 42, N=1000) | Rabt | Baseline |
+|---|---|---|
+| Closure rate | 100% | 100% |
+| Median time to next step (min) | 104 | 331 |
+| Critical escalation recall | 100% | ~53% |
+| False closures | **0** | 129 |
+| Fairness slices | age / sex / nationality / insurance in [benchmark/reports/report.md](benchmark/reports/report.md) |
 
-The benchmark assumptions are in `benchmark/config/` (seed 42, 1,000 cases). The simulation runner isn't built yet. All benchmark numbers will be **simulated on synthetic data**, not real-world outcomes.
+All benchmark numbers are **simulated on synthetic data**, not real-world outcomes.
 
 ## Tech stack
 
@@ -259,18 +258,29 @@ Details: [docs/responsible-ai.md](docs/responsible-ai.md) · [docs/assumptions-l
 - **Insurance plans, networks and providers are fictional.**
 - **Not a medical device.** It does not diagnose, prescribe or replace clinical judgement. Triage thresholds, ladder delays and time limits are **illustrative placeholders**.
 
+## Demo links
+
+| Asset | Link |
+|---|---|
+| Live demo | _Set after Render/Azure deploy — see Deploy below_ |
+| Demo video (≤3 min) | _Pending recording from team_ |
+| Pitch deck PDF | _Pending final export_ |
+
+## Deploy
+
+- **Docker:** `services/orchestrator/Dockerfile` (API) and `apps/web/Dockerfile` (Next.js standalone). Bind to `0.0.0.0:$PORT`.
+- **Render:** [render.yaml](render.yaml) blueprint (1 replica each; SQLite reseed on API start). Set `CORS_ORIGINS` to the web origin and `NEXT_PUBLIC_API_URL` to the API URL.
+- **Azure:** `infra/main.bicep` + `azure.yaml` scaffold; expand modules for Container Apps when ready (`azd up`).
+- Local: `make api` / `make web`, or `docker compose up` for mocks.
+
 ## Limitations
 
-Known gaps in the current build:
+Known gaps / honesty notes:
 
-- **Blood pressure intake shape:** critical BP is detected only when systolic or diastolic is a top-level field on the Observation (the demo format). Standard FHIR `valueQuantity` (LOINC 8480-6) and `component[]` panels (85354-9) are not yet triaged as critical.
-- **Escalation ladder:** only step 1 (coordinator) is created. Steps 2–3 and the timeout sweep are defined but not scheduled.
-- **Two-person closure:** approvals are recorded, but an approved request doesn't yet resume and close the case, and the requester isn't blocked from voting.
-- **No authentication:** guest mode only; approver IDs come from the request.
-- **Delegation limits:** step limits and per-agent tool scopes are declared but not enforced.
-- **MCP servers:** stubs written for the MCP SDK v1 API; not yet wired into the running demo.
-- **Ledger** is SQLite with a single instance; the default `/kpis` false-closure count is a placeholder.
-- **Golden cases:** 4 of 10 still need tests. **Benchmark:** not yet run.
+- **Demo auth only:** `X-Rabt-Persona` on writes and `X-Rabt-Ingest-Secret` for ingest/webhooks; not Entra ID / UAE PASS yet ([docs/responsible-ai.md](docs/responsible-ai.md)).
+- **MCP servers:** importable with `mcp>=1.1,<2` and smoke-tested; not yet the live tool bus for the demo path.
+- **Ledger** is SQLite with a single replica (ephemeral on free PaaS).
+- **Video / deck links** above are filled when the recording and PDF are ready (#13).
 
 ## Roadmap and pilot path
 

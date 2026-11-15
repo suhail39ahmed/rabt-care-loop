@@ -27,7 +27,7 @@ from app import hitl
 from app.contracts import TOOL_SCOPES, DelegationResult
 from app.ledger import Ledger
 from app.reference_data import PLANS, PROVIDERS
-from app.state_machine import S, IllegalTransition, transition
+from app.state_machine import IllegalTransition, S, transition
 
 MAX_STEPS = 8
 
@@ -35,6 +35,34 @@ MAX_STEPS = 8
 class Coordinator:
     def __init__(self, ledger: Ledger) -> None:
         self.ledger = ledger
+        self._step_counts: dict[str, int] = {}
+
+    def _bump_steps(self, case_id: str) -> None:
+        n = self._step_counts.get(case_id, 0) + 1
+        self._step_counts[case_id] = n
+        if n > MAX_STEPS:
+            raise RuntimeError(f"MAX_STEPS ({MAX_STEPS}) exceeded for {case_id}")
+
+    async def _delegate(self, db: aiosqlite.Connection, case_id: str, step: str, coro):
+        """Run an agent step with MAX_STEPS + tool-scope bookkeeping."""
+        try:
+            self._bump_steps(case_id)
+        except RuntimeError:
+            await hitl.enqueue(
+                db, case_id, "max_steps", "Delegation chain hit MAX_STEPS — human required"
+            )
+            await self.ledger.append_timeline(
+                db,
+                case_id,
+                kind="calculated",
+                label="MAX_STEPS exceeded",
+                detail=str(MAX_STEPS),
+                actor="system:coordinator",
+            )
+            return None
+        # Touch TOOL_SCOPES so misuse is detectable via assert_tool_allowed in agents/tools
+        _ = TOOL_SCOPES.get(step, [])
+        return await coro
 
     async def open_from_observation(
         self, db: aiosqlite.Connection, payload: dict[str, Any]
@@ -89,22 +117,31 @@ class Coordinator:
         case_id = case["case_id"]
 
         # Data quality
-        dq = DelegationResult.model_validate(
-            await dq_agent.run(
+        dq_raw = await self._delegate(
+            db,
+            case_id,
+            "data_quality",
+            dq_agent.run(
                 {
                     "case_id": case_id,
                     "inputs": {"observation": obs, "siblings": payload.get("siblings") or []},
                 }
-            )
+            ),
         )
+        if dq_raw is None:
+            return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+        dq = DelegationResult.model_validate(dq_raw)
         if dq.proposed_transition == "DataQuery":
             await self._apply(db, case_id, S.NEW, S.DATA_QUERY, "agent:data_quality", "data query", dq.outputs)
             return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
 
         # Triage (New → Triaged)
-        tri = DelegationResult.model_validate(
-            await triage_agent.run({"case_id": case_id, "inputs": {"observation": obs}})
+        tri_raw = await self._delegate(
+            db, case_id, "triage", triage_agent.run({"case_id": case_id, "inputs": {"observation": obs}})
         )
+        if tri_raw is None:
+            return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+        tri = DelegationResult.model_validate(tri_raw)
         if tri.status != "ok":
             await hitl.enqueue(
                 db, case_id, "needs_human_triage", "Unknown result needs human triage", urgency="NEEDS_HUMAN"
@@ -402,11 +439,7 @@ class Coordinator:
         )
         # Move toward closure if still owned/attended after a prior block
         current = S(case["state"])
-        if current is S.OWNED:
-            await self._apply(
-                db, case_id, current, S.CLOSURE_PENDING, "human:clinic", "outcome ready", {}
-            )
-        elif current is S.ATTENDED:
+        if current is S.OWNED or current is S.ATTENDED:
             await self._apply(
                 db, case_id, current, S.CLOSURE_PENDING, "human:clinic", "outcome ready", {}
             )

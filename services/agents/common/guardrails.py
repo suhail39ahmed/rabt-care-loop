@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 NO_DIAGNOSIS_PATTERNS = [
     r"\byou have (diabetes|cancer|hypertension)\b",
@@ -26,11 +26,11 @@ RED_FLAG_PATTERNS = [
 
 
 def no_diagnosis(text: str) -> bool:
-    return not any(re.search(p, text, re.I) for p in NO_DIAGNOSIS_PATTERNS)
+    return not any(re.search(p, text, re.IGNORECASE) for p in NO_DIAGNOSIS_PATTERNS)
 
 
 def has_red_flag(text: str) -> bool:
-    return any(re.search(p, text, re.I) for p in RED_FLAG_PATTERNS)
+    return any(re.search(p, text, re.IGNORECASE) for p in RED_FLAG_PATTERNS)
 
 
 def scrub_pii(text: str, tokens: dict[str, str] | None = None) -> str:

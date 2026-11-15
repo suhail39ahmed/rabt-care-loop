@@ -1,6 +1,6 @@
-from hypothesis import given, strategies as st
-
-from app.state_machine import ALLOWED, S, IllegalTransition, transition
+from app.state_machine import ALLOWED, IllegalTransition, S, transition
+from hypothesis import given
+from hypothesis import strategies as st
 
 
 def test_sc01_happy_path():

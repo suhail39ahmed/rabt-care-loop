@@ -1,4 +1,29 @@
 services:
+  api:
+    build:
+      context: .
+      dockerfile: services/orchestrator/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      PORT: "8000"
+      RABT_DB: /tmp/rabt.db
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+    # Single replica — startup reseeds SQLite
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+    depends_on:
+      - api
+
   hapi:
     image: hapiproject/hapi:v7.4.0
     ports:

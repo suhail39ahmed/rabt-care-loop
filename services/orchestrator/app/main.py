@@ -10,13 +10,15 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from starlette.responses import JSONResponse
 
 from app import demo_clock
+from app.auth import ingest_secret_ok
 from app.coordinator import Coordinator
 from app.demo_seed import seed_demo
 from app.hitl import ApprovalError, list_approvals, list_queue, submit_decision
 from app.ledger import Ledger
-from app.reference_data import DEMO_PATIENTS, PLANS, PROVIDERS
+from app.reference_data import PLANS, PROVIDERS
 from app.settings import get_settings
 from app.state_machine import IllegalTransition
 
@@ -80,6 +82,26 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def demo_write_auth(request: Request, call_next):
+    """Read-only guest access; writes need persona or ingest secret."""
+    if request.method in {"GET", "HEAD", "OPTIONS"}:
+        return await call_next(request)
+    path = request.url.path
+    if path in {"/healthz"}:
+        return await call_next(request)
+    if path.startswith("/webhook/") or path == "/cases/ingest":
+        secret = request.headers.get("X-Rabt-Ingest-Secret")
+        if not ingest_secret_ok(secret):
+            return JSONResponse({"detail": "invalid or missing X-Rabt-Ingest-Secret"}, status_code=401)
+        return await call_next(request)
+    persona = request.headers.get("X-Rabt-Persona")
+    if not persona:
+        return JSONResponse({"detail": "X-Rabt-Persona header required for write routes"}, status_code=401)
+    request.state.persona = persona
+    return await call_next(request)
+
+
 class ObservationIn(BaseModel):
     patient_id: str
     observation: dict[str, Any]
@@ -99,9 +121,10 @@ class BookIn(BaseModel):
 
 
 class DecisionIn(BaseModel):
-    user_id: str
     decision: str  # approved | rejected
     reason: str = ""
+    # user_id ignored if sent — identity comes from X-Rabt-Persona
+    user_id: str | None = None
 
 
 class CloseIn(BaseModel):
@@ -369,10 +392,13 @@ async def approvals(status: str = "pending"):
 
 
 @app.post("/approvals/{token}/decision")
-async def approval_decision(token: str, body: DecisionIn):
+async def approval_decision(token: str, body: DecisionIn, request: Request):
+    persona = getattr(request.state, "persona", None) or request.headers.get("X-Rabt-Persona")
+    if not persona:
+        raise HTTPException(401, "X-Rabt-Persona required")
     db = await ledger.connect()
     try:
-        result = await submit_decision(db, token, body.user_id, body.decision, body.reason)
+        result = await submit_decision(db, token, persona, body.decision, body.reason)
         if result.get("status") == "approved" and result.get("action") == "exceptional_closure":
             cur = await db.execute(
                 "SELECT user_id FROM approval_votes WHERE token = ? AND decision = 'approved' ORDER BY at ASC",

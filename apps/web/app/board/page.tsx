@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, setApiPersona } from "@/lib/api";
 
 type Evidence = {
   attended_encounter?: boolean;
@@ -74,8 +74,9 @@ export default function BoardPage() {
   }, []);
 
   useEffect(() => {
+    setApiPersona(persona);
     refresh().catch((e) => setErr(String(e)));
-  }, [refresh]);
+  }, [refresh, persona]);
 
   const openCase = async (id: string) => {
     const c = await api<Case>(`/cases/${id}`);
@@ -130,9 +131,10 @@ export default function BoardPage() {
   const vote = async (token: string, decision: "approved" | "rejected", caseId: string) => {
     setErr("");
     try {
+      setApiPersona(persona);
       const result = await api<{ status: string; case?: Case }>(`/approvals/${token}/decision`, {
         method: "POST",
-        body: JSON.stringify({ user_id: persona, decision }),
+        body: JSON.stringify({ decision }),
       });
       await refresh();
       if (result.case) setSelected(result.case);
@@ -172,7 +174,10 @@ export default function BoardPage() {
             Acting as{" "}
             <select
               value={persona}
-              onChange={(e) => setPersona(e.target.value)}
+              onChange={(e) => {
+                setPersona(e.target.value);
+                setApiPersona(e.target.value);
+              }}
               style={{
                 marginInlineStart: "0.35rem",
                 padding: "0.35rem 0.55rem",

@@ -6,7 +6,6 @@ import os
 import tempfile
 
 import pytest
-
 from app.coordinator import Coordinator
 from app.demo_seed import obs_hba1c
 from app.hitl import ApprovalError, list_approvals, submit_decision

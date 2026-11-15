@@ -63,7 +63,11 @@ async def test_gc01_hba1c_flow(orch):
     assert opts
     assert all(o.get("in_network") for o in opts)
     case = await coord.book(db, case["case_id"], opts[0]["id"])
-    case = await coord.mark_attended(db, case["case_id"], "Plan agreed")
+    case = await coord.mark_attended(db, case["case_id"], "Encounter completed")
+    assert case["state"] != "Closed"
+    case = await coord.record_outcome(
+        db, case["case_id"], outcome_ref="Encounter/gc01", outcome_note="Plan agreed"
+    )
     assert case["state"] == "Closed"
 
 

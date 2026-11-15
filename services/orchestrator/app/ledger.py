@@ -54,7 +54,8 @@ CREATE TABLE IF NOT EXISTS approvals (
   created_at REAL NOT NULL,
   due_at REAL NOT NULL,
   status TEXT NOT NULL,
-  evidence_json TEXT DEFAULT '{}'
+  evidence_json TEXT DEFAULT '{}',
+  requested_by TEXT
 );
 
 CREATE TABLE IF NOT EXISTS approval_votes (

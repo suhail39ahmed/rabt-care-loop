@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.coordinator import Coordinator
 from app.demo_seed import seed_demo
-from app.hitl import list_queue, submit_decision
+from app.hitl import ApprovalError, list_approvals, list_queue, submit_decision
 from app.ledger import Ledger
 from app.reference_data import DEMO_PATIENTS, PLANS, PROVIDERS
 from app.settings import get_settings
@@ -82,7 +82,12 @@ class DecisionIn(BaseModel):
 class CloseIn(BaseModel):
     human_reason_code: str | None = None
     human_signer: str | None = None
-    four_eyes_ok: bool = False
+    # four_eyes_ok removed — dual approval via /approvals only; extra body fields ignored
+
+
+class OutcomeIn(BaseModel):
+    outcome_ref: str
+    outcome_note: str = ""
 
 
 class QuestionIn(BaseModel):
@@ -216,7 +221,7 @@ async def book(case_id: str, body: BookIn):
 
 
 @app.post("/cases/{case_id}/attend")
-async def attend(case_id: str, note: str = "Follow-up completed"):
+async def attend(case_id: str, note: str = "Encounter completed"):
     db = await ledger.connect()
     try:
         return await coordinator.mark_attended(db, case_id, note)
@@ -226,11 +231,29 @@ async def attend(case_id: str, note: str = "Follow-up completed"):
         await db.close()
 
 
+@app.post("/cases/{case_id}/outcome")
+async def record_outcome(case_id: str, body: OutcomeIn):
+    db = await ledger.connect()
+    try:
+        return await coordinator.record_outcome(
+            db, case_id, outcome_ref=body.outcome_ref, outcome_note=body.outcome_note
+        )
+    except IllegalTransition as e:
+        raise HTTPException(400, str(e)) from e
+    except KeyError:
+        raise HTTPException(404, "case not found") from None
+    finally:
+        await db.close()
+
+
 @app.post("/cases/{case_id}/close")
 async def close_case(case_id: str, body: CloseIn | None = None):
     db = await ledger.connect()
     try:
         human = body.model_dump(exclude_none=True) if body else None
+        # Ignore legacy four_eyes_ok if a client still sends it
+        if human:
+            human.pop("four_eyes_ok", None)
         return await coordinator.try_close(db, case_id, human=human)
     except IllegalTransition as e:
         raise HTTPException(400, str(e)) from e
@@ -292,12 +315,39 @@ async def queue():
         await db.close()
 
 
+@app.get("/approvals")
+async def approvals(status: str = "pending"):
+    db = await ledger.connect()
+    try:
+        return await list_approvals(db, status=status)
+    finally:
+        await db.close()
+
+
 @app.post("/approvals/{token}/decision")
 async def approval_decision(token: str, body: DecisionIn):
     db = await ledger.connect()
     try:
-        return await submit_decision(db, token, body.user_id, body.decision, body.reason)
+        result = await submit_decision(db, token, body.user_id, body.decision, body.reason)
+        if result.get("status") == "approved" and result.get("action") == "exceptional_closure":
+            cur = await db.execute(
+                "SELECT user_id FROM approval_votes WHERE token = ? AND decision = 'approved' ORDER BY at ASC",
+                (token,),
+            )
+            approvers = [r["user_id"] for r in await cur.fetchall()]
+            case = await coordinator.complete_approved_closure(
+                db,
+                result["case_id"],
+                approvers=approvers,
+                evidence=result.get("evidence") or {},
+            )
+            result["case"] = case
+        return result
+    except ApprovalError as e:
+        raise HTTPException(403, str(e)) from e
     except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except IllegalTransition as e:
         raise HTTPException(400, str(e)) from e
     finally:
         await db.close()

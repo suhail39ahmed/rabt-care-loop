@@ -357,20 +357,58 @@ class Coordinator:
         return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
 
     async def mark_attended(
-        self, db: aiosqlite.Connection, case_id: str, outcome_note: str = "Follow-up completed"
+        self, db: aiosqlite.Connection, case_id: str, note: str = "Encounter completed"
     ) -> dict[str, Any]:
+        """Record attendance only — outcome document is a separate step (#3)."""
         case = await self.ledger.get_case(db, case_id)
         if not case:
             raise KeyError(case_id)
         await self._apply(db, case_id, S(case["state"]), S.ATTENDED, "human:clinic", "attended", {})
-        evidence = case.get("evidence") or {}
+        evidence = dict(case.get("evidence") or {})
         evidence["attended_encounter"] = True
-        evidence["outcome_note"] = outcome_note
-        evidence["outcome_document"] = True
+        evidence["attendance_note"] = note
+        # Do not set outcome_document here — requires POST /outcome
         await self.ledger.update_case(db, case_id, evidence=evidence)
         await self._apply(
             db, case_id, S.ATTENDED, S.CLOSURE_PENDING, "system:flow", "closure pending", {}
         )
+        return await self.try_close(db, case_id)
+
+    async def record_outcome(
+        self,
+        db: aiosqlite.Connection,
+        case_id: str,
+        *,
+        outcome_ref: str,
+        outcome_note: str = "",
+    ) -> dict[str, Any]:
+        case = await self.ledger.get_case(db, case_id)
+        if not case:
+            raise KeyError(case_id)
+        evidence = dict(case.get("evidence") or {})
+        evidence["outcome_document"] = True
+        evidence["outcome_ref"] = outcome_ref
+        if outcome_note:
+            evidence["outcome_note"] = outcome_note
+        await self.ledger.update_case(db, case_id, evidence=evidence)
+        await self.ledger.append_timeline(
+            db,
+            case_id,
+            kind="fact",
+            label="Outcome documented",
+            detail=outcome_ref,
+            actor="human:clinic",
+        )
+        # Move toward closure if still owned/attended after a prior block
+        current = S(case["state"])
+        if current is S.OWNED:
+            await self._apply(
+                db, case_id, current, S.CLOSURE_PENDING, "human:clinic", "outcome ready", {}
+            )
+        elif current is S.ATTENDED:
+            await self._apply(
+                db, case_id, current, S.CLOSURE_PENDING, "human:clinic", "outcome ready", {}
+            )
         return await self.try_close(db, case_id)
 
     async def try_close(
@@ -381,7 +419,9 @@ class Coordinator:
             raise KeyError(case_id)
         evidence = dict(case.get("evidence") or {})
         if human:
-            evidence.update(human)
+            # four_eyes_ok is ignored — two-person approval is the only override path
+            cleaned = {k: v for k, v in human.items() if k != "four_eyes_ok"}
+            evidence.update(cleaned)
         res = DelegationResult.model_validate(
             await closure_agent.run({"case_id": case_id, "inputs": {"evidence": evidence}})
         )
@@ -392,22 +432,31 @@ class Coordinator:
         if res.outputs.get("evidence", {}).get("closable"):
             mode = res.outputs["evidence"].get("mode")
             if mode == "human":
-                # require 4-eyes via HITL — if already approved in human dict
-                if evidence.get("four_eyes_ok"):
-                    actor = f"human:{evidence.get('human_signer', 'physician')}"
+                if evidence.get("two_person_approved"):
+                    approvers = evidence.get("approvers") or []
+                    actor = f"human:{approvers[0]}" if approvers else "human:board"
                     await self._apply(
                         db,
                         case_id,
                         current,
-                        S.CLOSED_BY_HUMAN if mode == "human" and not evidence.get("attended_encounter") else S.CLOSED,
+                        S.CLOSED_BY_HUMAN,
                         actor,
                         evidence.get("human_reason_code", "human_close"),
                         {"closure_ok": True, **evidence},
                     )
                 else:
+                    requester = evidence.get("human_signer") or evidence.get("requested_by") or "human:requester"
+                    if not str(requester).startswith("human:"):
+                        requester = f"human:{requester}"
                     token = await hitl.request_approval(
-                        db, case_id, "exceptional_closure", approvers_required=2, evidence=evidence
+                        db,
+                        case_id,
+                        "exceptional_closure",
+                        approvers_required=2,
+                        evidence=evidence,
+                        requested_by=requester,
                     )
+                    evidence["pending_approval_token"] = token
                     await self.ledger.append_timeline(
                         db,
                         case_id,
@@ -416,6 +465,16 @@ class Coordinator:
                         detail=token,
                         actor="system:hitl",
                     )
+                    if current in {S.CLOSURE_PENDING, S.OWNED}:
+                        await self._apply(
+                            db,
+                            case_id,
+                            current,
+                            S.ON_HOLD_CONSENT,
+                            "system:hitl",
+                            "awaiting two-person approval",
+                            {"approval_token": token},
+                        )
             else:
                 await self._apply(
                     db,
@@ -448,6 +507,39 @@ class Coordinator:
                 )
         await self.ledger.update_case(db, case_id, evidence=evidence)
         return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+
+    async def complete_approved_closure(
+        self,
+        db: aiosqlite.Connection,
+        case_id: str,
+        *,
+        approvers: list[str],
+        evidence: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Resume closure after two distinct non-requester approvals."""
+        case = await self.ledger.get_case(db, case_id)
+        if not case:
+            raise KeyError(case_id)
+        merged = dict(case.get("evidence") or {})
+        if evidence:
+            merged.update(evidence)
+        merged["two_person_approved"] = True
+        merged["approvers"] = approvers
+        merged["four_eyes_ok"] = True  # internal marker after real dual approval only
+        if not merged.get("human_reason_code"):
+            merged["human_reason_code"] = "exceptional_closure"
+        if not merged.get("human_signer"):
+            merged["human_signer"] = approvers[0] if approvers else "board"
+        await self.ledger.update_case(db, case_id, evidence=merged)
+        await self.ledger.append_timeline(
+            db,
+            case_id,
+            kind="fact",
+            label="Two-person closure approved",
+            detail=", ".join(approvers),
+            actor="system:hitl",
+        )
+        return await self.try_close(db, case_id, human={"two_person_approved": True, "approvers": approvers})
 
     async def reject_referral(
         self, db: aiosqlite.Connection, case_id: str, reason: str

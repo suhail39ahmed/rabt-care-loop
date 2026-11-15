@@ -188,6 +188,18 @@ export default function BoardPage() {
               ))}
             </select>
           </label>
+          <button
+            className="btn ghost"
+            type="button"
+            onClick={async () => {
+              await api("/demo/advance?minutes=15", { method: "POST" });
+              await refresh();
+              if (selected) await openCase(selected.case_id);
+              setFlash("Demo clock +15 minutes — ladder tick ran.");
+            }}
+          >
+            Advance +15m
+          </button>
           <Link className="btn ghost" href="/learn">
             Learn
           </Link>

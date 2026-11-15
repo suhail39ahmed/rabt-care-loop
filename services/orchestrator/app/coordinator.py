@@ -124,35 +124,7 @@ class Coordinator:
 
         next_after = tri.outputs.get("next_after_triaged", "AwaitingOwner")
         if next_after == "Escalated" or tri.outputs.get("urgency") == "CRITICAL":
-            esc = DelegationResult.model_validate(
-                await escalation_agent.run({"case_id": case_id, "inputs": {"ladder_step": 0}})
-            )
-            await self._apply(db, case_id, S.TRIAGED, S.ESCALATED, "agent:escalation", "critical ladder", esc.outputs)
-            await self.ledger.update_case(db, case_id, ladder_step=1)
-            await hitl.enqueue(
-                db,
-                case_id,
-                "critical",
-                esc.outputs.get("ladder", {}).get("title", "Critical escalation"),
-                urgency="CRITICAL",
-                detail="No result values sent on SMS. LLM was not used.",
-                ladder_step=1,
-            )
-            # safe message without values
-            msg = esc.outputs.get("safe_message", {})
-            case = await self.ledger.get_case(db, case_id)
-            messages = case["messages"]  # type: ignore[index]
-            messages.append(
-                {
-                    "channel": "sms",
-                    "text": msg.get("text_en"),
-                    "text_ar": msg.get("text_ar"),
-                    "includes_values": False,
-                    "ai_generated": False,
-                }
-            )
-            await self.ledger.update_case(db, case_id, messages=messages)
-            return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+            return await self._enter_critical_ladder(db, case_id)
 
         # Ownership
         own = DelegationResult.model_validate(
@@ -612,12 +584,158 @@ class Coordinator:
         out["econsult"] = res.outputs  # type: ignore[index]
         return out  # type: ignore[return-value]
 
+    async def _enter_critical_ladder(self, db: aiosqlite.Connection, case_id: str) -> dict[str, Any]:
+        from app import demo_clock
+
+        esc = DelegationResult.model_validate(
+            await escalation_agent.run({"case_id": case_id, "inputs": {"ladder_step": 0}})
+        )
+        await self._apply(db, case_id, S.TRIAGED, S.ESCALATED, "agent:escalation", "critical ladder", esc.outputs)
+        started = demo_clock.now()
+        evidence = {"ladder_started_at": started, "ladder_stopped": False}
+        await self.ledger.update_case(db, case_id, ladder_step=1, evidence=evidence)
+        await hitl.enqueue(
+            db,
+            case_id,
+            "critical",
+            esc.outputs.get("ladder", {}).get("title", "Critical escalation"),
+            urgency="CRITICAL",
+            detail="No result values sent on SMS. LLM was not used.",
+            ladder_step=1,
+        )
+        # SLA toward step 2 (15 min illustrative)
+        step2 = next((x for x in escalation_agent.LADDER if x["step"] == 2), None)
+        sla = int((step2 or {}).get("delay_min", 15)) * 60
+        await hitl.request_approval(
+            db,
+            case_id,
+            "critical",
+            approvers_required=1,
+            sla_seconds=max(sla, 1),
+            evidence={"ladder_step": 1},
+            requested_by="system:escalation",
+        )
+        msg = esc.outputs.get("safe_message", {})
+        case = await self.ledger.get_case(db, case_id)
+        messages = case["messages"]  # type: ignore[index]
+        messages.append(
+            {
+                "channel": "sms",
+                "text": msg.get("text_en"),
+                "text_ar": msg.get("text_ar"),
+                "includes_values": False,
+                "ai_generated": False,
+            }
+        )
+        await self.ledger.update_case(db, case_id, messages=messages)
+        return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+
+    async def advance_ladder(self, db: aiosqlite.Connection, case_id: str) -> dict[str, Any] | None:
+        """Move one ladder step. Never closes the case."""
+        case = await self.ledger.get_case(db, case_id)
+        if not case:
+            return None
+        evidence = dict(case.get("evidence") or {})
+        if evidence.get("ladder_stopped"):
+            return case
+        if case["state"] != S.ESCALATED.value:
+            return case
+        current_step = int(case.get("ladder_step") or 0)
+        nxt = escalation_agent.next_step(current_step)
+        if not nxt:
+            await self.ledger.append_timeline(
+                db,
+                case_id,
+                kind="calculated",
+                label="Ladder exhausted — still open for human",
+                detail="Timeouts never auto-close",
+                actor="agent:escalation",
+            )
+            return case
+        new_step = nxt["step"]
+        await self.ledger.update_case(db, case_id, ladder_step=new_step)
+        await hitl.enqueue(
+            db,
+            case_id,
+            "critical",
+            nxt["title"],
+            urgency="CRITICAL",
+            detail=f"Ladder step {new_step} ({nxt['role']})",
+            ladder_step=new_step,
+        )
+        await self.ledger.append_timeline(
+            db,
+            case_id,
+            kind="calculated",
+            label=f"Escalation ladder → step {new_step}",
+            detail=nxt["title"],
+            actor="agent:escalation",
+        )
+        # Schedule next timeout if another step remains
+        following = escalation_agent.next_step(new_step)
+        if following:
+            from app import demo_clock
+
+            started = float(evidence.get("ladder_started_at") or demo_clock.now())
+            due_in = max(int(following["delay_min"] * 60 - (demo_clock.now() - started)), 1)
+            await hitl.request_approval(
+                db,
+                case_id,
+                "critical",
+                approvers_required=1,
+                sla_seconds=due_in,
+                evidence={"ladder_step": new_step},
+                requested_by="system:escalation",
+            )
+        return await self.ledger.get_case(db, case_id)
+
+    async def stop_ladder(self, db: aiosqlite.Connection, case_id: str) -> None:
+        case = await self.ledger.get_case(db, case_id)
+        if not case:
+            return
+        evidence = dict(case.get("evidence") or {})
+        evidence["ladder_stopped"] = True
+        await self.ledger.update_case(db, case_id, evidence=evidence)
+        await db.execute(
+            "UPDATE approvals SET status = 'cancelled' WHERE case_id = ? AND action = 'critical' AND status = 'pending'",
+            (case_id,),
+        )
+        await db.commit()
+
+    async def tick(self, db: aiosqlite.Connection) -> dict[str, Any]:
+        """Sweep HITL timeouts and apply safe defaults (never auto-close)."""
+        timed_out = await hitl.sweep_timeouts(db)
+        advanced: list[str] = []
+        kept_open: list[str] = []
+        for item in timed_out:
+            action = item["action"]
+            case_id = item["case_id"]
+            safe = item.get("safe_default")
+            if action == "critical" or safe == "next_ladder_step":
+                await self.advance_ladder(db, case_id)
+                advanced.append(case_id)
+            elif action == "exceptional_closure" or safe == "keep_open":
+                # Timeouts never close a case
+                kept_open.append(case_id)
+                await self.ledger.append_timeline(
+                    db,
+                    case_id,
+                    kind="calculated",
+                    label="Approval timed out — kept open",
+                    detail=item.get("token", ""),
+                    actor="system:hitl",
+                )
+            else:
+                kept_open.append(case_id)
+        return {"timed_out": timed_out, "ladder_advanced": advanced, "kept_open": kept_open}
+
     async def human_handle_escalation(
         self, db: aiosqlite.Connection, case_id: str, actor: str
     ) -> dict[str, Any]:
         case = await self.ledger.get_case(db, case_id)
         if not case:
             raise KeyError(case_id)
+        await self.stop_ladder(db, case_id)
         await self._apply(db, case_id, S(case["state"]), S.OWNED, actor, "human handled escalation", {})
         return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
 

@@ -73,6 +73,9 @@ async def test_gc01_hba1c_flow(orch):
 
 @pytest.mark.asyncio
 async def test_gc02_critical_no_llm_values(orch):
+    from app import demo_clock
+
+    demo_clock.reset()
     ledger, coord, db = orch
     omar = DEMO_PATIENTS["omar"]
     case = await coord.open_from_observation(
@@ -86,9 +89,33 @@ async def test_gc02_critical_no_llm_values(orch):
     )
     assert case["state"] == "Escalated"
     assert case["urgency"] == "CRITICAL"
+    assert case["ladder_step"] == 1
     msg = case["messages"][-1]
     assert msg.get("includes_values") is False
     assert "190" not in (msg.get("text") or "")
+
+    demo_clock.advance(15)
+    await coord.tick(db)
+    case = await ledger.get_case(db, case["case_id"])
+    assert case["state"] == "Escalated"
+    assert case["ladder_step"] == 2
+    assert any("ladder → step 2" in (t.get("label") or "").lower() or "step 2" in (t.get("label") or "").lower() for t in case["timeline"])
+
+    demo_clock.advance(30)
+    await coord.tick(db)
+    case = await ledger.get_case(db, case["case_id"])
+    assert case["ladder_step"] == 3
+    assert case["state"] == "Escalated"  # timeouts never close
+
+    case = await coord.human_handle_escalation(db, case["case_id"], "human:coordinator")
+    assert case["state"] == "Owned"
+    assert (case.get("evidence") or {}).get("ladder_stopped") is True
+    step_before = case["ladder_step"]
+    demo_clock.advance(60)
+    await coord.tick(db)
+    case = await ledger.get_case(db, case["case_id"])
+    assert case["ladder_step"] == step_before  # accepting stops the ladder
+    demo_clock.reset()
 
 
 @pytest.mark.asyncio

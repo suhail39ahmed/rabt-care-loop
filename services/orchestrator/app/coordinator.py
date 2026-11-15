@@ -122,6 +122,12 @@ class Coordinator:
             pathway=tri.outputs.get("pathway"),
         )
 
+        # Ground-truth flag for KPI critical recall (seed / benchmark may also set it)
+        ev = dict((await self.ledger.get_case(db, case_id) or {}).get("evidence") or {})
+        if payload.get("ground_truth_critical") is True or tri.outputs.get("urgency") == "CRITICAL":
+            ev["ground_truth_critical"] = True
+            await self.ledger.update_case(db, case_id, evidence=ev)
+
         next_after = tri.outputs.get("next_after_triaged", "AwaitingOwner")
         if next_after == "Escalated" or tri.outputs.get("urgency") == "CRITICAL":
             return await self._enter_critical_ladder(db, case_id)
@@ -592,7 +598,15 @@ class Coordinator:
         )
         await self._apply(db, case_id, S.TRIAGED, S.ESCALATED, "agent:escalation", "critical ladder", esc.outputs)
         started = demo_clock.now()
-        evidence = {"ladder_started_at": started, "ladder_stopped": False}
+        case = await self.ledger.get_case(db, case_id)
+        evidence = dict((case or {}).get("evidence") or {})
+        evidence.update(
+            {
+                "ladder_started_at": started,
+                "ladder_stopped": False,
+                "ground_truth_critical": True,
+            }
+        )
         await self.ledger.update_case(db, case_id, ladder_step=1, evidence=evidence)
         await hitl.enqueue(
             db,

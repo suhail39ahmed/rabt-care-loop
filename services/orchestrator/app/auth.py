@@ -26,7 +26,7 @@ PERSONA_ALIASES: dict[str, str] = {
 DEMO_PERSONAS = set(PERSONA_ROLES) | set(PERSONA_ALIASES)
 
 CLINICIAN_ROLES = frozenset({"physician", "coordinator", "supervisor"})
-PATIENT_ROUTES = frozenset({"teachback", "book", "reassure", "consent"})
+PATIENT_ROUTES = frozenset({"teachback", "book", "reassure", "consent", "concern"})
 CLINICIAN_ONLY_SUFFIXES = (
     "/accept",
     "/decline",
@@ -37,6 +37,11 @@ CLINICIAN_ONLY_SUFFIXES = (
     "/reject-referral",
     "/econsult",
     "/notify",
+    "/call/outcome",
+    "/unreachable",
+    "/callback/done",
+    "/data-query/resolve",
+    "/consent/resume",
 )
 
 

@@ -39,6 +39,7 @@ type Case = {
     rationale_ar?: string;
   }>;
   reassurance?: { answer: string; citations?: Array<{ id: string }>; hand_off_offered?: boolean };
+  concern?: { intent: string; crisis?: boolean; snippet?: string };
 };
 
 export default function PatientCasePage() {
@@ -393,6 +394,28 @@ export default function PatientCasePage() {
         </div>
         {c.reassurance?.answer ? (
           <p style={{ whiteSpace: "pre-wrap", marginTop: "0.9rem" }}>{c.reassurance.answer}</p>
+        ) : null}
+        <h3 style={{ fontFamily: "var(--font-display)", marginTop: "1.2rem" }}>
+          {rtl ? "لديّ قلق" : "I have a concern"}
+        </h3>
+        <button
+          className="btn secondary"
+          type="button"
+          disabled={busy}
+          onClick={() =>
+            run(async () => {
+              const updated = await api<Case & { concern?: { snippet?: string } }>(`/cases/${c.case_id}/concern`, {
+                method: "POST",
+                body: JSON.stringify({ text: question, language: lang }),
+              });
+              setC(updated);
+            })
+          }
+        >
+          {rtl ? "أرسل القلق للمنسق" : "Share concern with coordinator"}
+        </button>
+        {c.concern?.snippet ? (
+          <p style={{ whiteSpace: "pre-wrap", marginTop: "0.9rem" }}>{c.concern.snippet}</p>
         ) : null}
       </section>
     </main>

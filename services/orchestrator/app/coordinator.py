@@ -934,6 +934,20 @@ class Coordinator:
             detail="No result values sent on SMS. LLM was not used.",
             ladder_step=1,
         )
+        script_path = Path(__file__).resolve().parents[3] / "data" / "scripts" / "expert_call_critical_en.md"
+        script = script_path.read_text(encoding="utf-8") if script_path.exists() else "Call patient urgently; log outcome."
+        evidence["expert_call_script"] = script
+        evidence["call_outcome"] = None
+        await self.ledger.update_case(db, case_id, evidence=evidence)
+        await hitl.enqueue(
+            db,
+            case_id,
+            "expert_call",
+            "Mandatory clinician call (CRITICAL)",
+            urgency="CRITICAL",
+            detail="Use approved script; log reached_going_now | reached_refusing | not_reached",
+            ladder_step=1,
+        )
         # SLA toward step 2 (15 min illustrative)
         step2 = next((x for x in escalation_agent.LADDER if x["step"] == 2), None)
         sla = int((step2 or {}).get("delay_min", 15)) * 60
@@ -1075,10 +1089,88 @@ class Coordinator:
         case = await self.ledger.get_case(db, case_id)
         if not case:
             raise CaseNotFound(case_id)
+        evidence = dict(case.get("evidence") or {})
+        if case.get("urgency") == "CRITICAL" and not evidence.get("call_outcome"):
+            raise IllegalTransition(
+                "log expert call outcome before handling CRITICAL escalation "
+                "(reached_going_now | reached_refusing | not_reached)"
+            )
         await self.stop_ladder(db, case_id)
         await self._apply(db, case_id, S(case["state"]), S.OWNED, actor, "human handled escalation", {})
         await hitl.resolve_open_for_case(db, case_id)
         return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+
+    async def log_call_outcome(
+        self, db: aiosqlite.Connection, case_id: str, outcome: str, actor: str
+    ) -> dict[str, Any]:
+        """Record mandatory clinician call outcome for CRITICAL cases (#87)."""
+        allowed = {"reached_going_now", "reached_refusing", "not_reached"}
+        if outcome not in allowed:
+            raise ValueError(f"outcome must be one of {sorted(allowed)}")
+        case = await self.ledger.get_case(db, case_id)
+        if not case:
+            raise CaseNotFound(case_id)
+        evidence = dict(case.get("evidence") or {})
+        evidence["call_outcome"] = outcome
+        evidence["call_outcome_by"] = actor
+        await self.ledger.update_case(db, case_id, evidence=evidence)
+        await self.ledger.append_timeline(
+            db,
+            case_id,
+            kind="fact",
+            label="Expert call outcome",
+            detail=outcome,
+            actor=actor,
+        )
+        await hitl.resolve_open_for_case(db, case_id, kind="expert_call")
+        return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+
+    async def share_concern(
+        self, db: aiosqlite.Connection, case_id: str, text: str, *, language: str | None = None
+    ) -> dict[str, Any]:
+        """Patient concern → crisis check → approved snippet + queue (#86, #95)."""
+        from agents.intent.classify import classify_concern
+
+        case = await self.ledger.get_case(db, case_id)
+        if not case:
+            raise CaseNotFound(case_id)
+        lang = language or case.get("language") or "en"
+        classified = classify_concern(text, language=lang)
+        await self.ledger.append_timeline(
+            db,
+            case_id,
+            kind="calculated",
+            label="Concern classified",
+            detail=f"{classified['intent']} ({classified['method']})",
+            actor="agent:intent",
+        )
+        out = await self.ledger.get_case(db, case_id)
+        out["concern"] = classified  # type: ignore[index]
+        if classified.get("crisis"):
+            if case["state"] == S.NOTIFIED.value:
+                await self._apply(
+                    db, case_id, S.NOTIFIED, S.HUMAN_CALLBACK, "agent:intent", "crisis concern", classified
+                )
+            await hitl.enqueue(
+                db,
+                case_id,
+                "callback",
+                "Crisis language in patient concern — call now",
+                urgency=case.get("urgency") or "URGENT",
+                detail=text[:200],
+            )
+        else:
+            await hitl.enqueue(
+                db,
+                case_id,
+                "concern",
+                f"Patient concern: {classified['intent']}",
+                urgency=case.get("urgency"),
+                detail=classified.get("snippet", "")[:200],
+            )
+        out = await self.ledger.get_case(db, case_id)
+        out["concern"] = classified  # type: ignore[index]
+        return out  # type: ignore[return-value]
 
     async def resolve_data_query(self, db: aiosqlite.Connection, case_id: str) -> dict[str, Any]:
         case = await self.ledger.get_case(db, case_id)

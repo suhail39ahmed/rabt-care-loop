@@ -4,22 +4,24 @@
 
 workload    = "rabt"
 environment = "pilot"
-location    = "uaenorth"
-name_suffix = "" # set e.g. "01" only if a global name (APIM, Key Vault, Storage, ACR...) is taken
+location    = "southeastasia" # Singapore
+name_suffix = ""              # set e.g. "01" only if a global name (APIM, Key Vault, Storage, ACR...) is taken
 
-# Services or models that are not offered (or have no quota) in UAE North go to an allowed fallback region.
-# Check model/region availability before apply.
-# location_overrides = {
-#   openai         = "swedencentral"
-#   content_safety = "swedencentral"
-# }
-# openai_secondary_location = "swedencentral" # optional failover account in the APIM backend pool
+# Southeast Asia has no regional Standard deployment of gpt-4.1-mini / gpt-4o / text-embedding-3-small,
+# and standalone Content Safety (text moderation, Prompt Shields) is not offered there. Both run in
+# Australia East, so prompts are processed in Australia; everything else stays in Singapore.
+# Evidence and the GlobalStandard trade-off: infra/terraform/README.md, Regions.
+location_overrides = {
+  openai         = "australiaeast"
+  content_safety = "australiaeast"
+}
+# openai_secondary_location: leave unset. No second APAC region in the allowlist offers these models as regional Standard.
 
 enable_private_networking = true
 
 openai_deployments = {
   chat-small  = { role = "small", model_name = "gpt-4.1-mini", model_version = "2025-04-14", sku_name = "Standard", capacity = 20 }
-  chat-strong = { role = "strong", model_name = "gpt-4.1", model_version = "2025-04-14", sku_name = "Standard", capacity = 10 }
+  chat-strong = { role = "strong", model_name = "gpt-4o", model_version = "2024-11-20", sku_name = "Standard", capacity = 10 }
   embed       = { role = "embedding", model_name = "text-embedding-3-small", model_version = "1", sku_name = "Standard", capacity = 20 }
 }
 

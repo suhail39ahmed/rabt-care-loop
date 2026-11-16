@@ -30,7 +30,7 @@ def test_azure_url_through_apim_gateway(monkeypatch):
     from agents.common.llm_client import build_chat_url
 
     monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-10-21")
-    gw = "https://apim-rabt-pilot-uaen.azure-api.net"
+    gw = "https://apim-rabt-pilot-sea.azure-api.net"
     want = f"{gw}/openai/deployments/chat-small/chat/completions?api-version=2024-10-21"
     assert build_chat_url("azure", gw, "chat-small") == want
     assert build_chat_url("azure", gw + "/openai/", "chat-small") == want
@@ -67,7 +67,7 @@ async def test_azure_sends_api_key_header_only(monkeypatch):
 
     monkeypatch.setenv("AI_ENABLED", "true")
     monkeypatch.setenv("LLM_PROVIDER", "azure")
-    monkeypatch.setenv("LLM_BASE_URL", "https://apim-rabt-pilot-uaen.azure-api.net")
+    monkeypatch.setenv("LLM_BASE_URL", "https://apim-rabt-pilot-sea.azure-api.net")
     monkeypatch.setenv("LLM_MODEL", "chat-small")
     monkeypatch.setenv("LLM_API_KEY", "k")
     monkeypatch.setattr(llm_client.httpx, "AsyncClient", FakeClient)

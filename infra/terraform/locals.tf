@@ -1,19 +1,14 @@
 # ---------------------------------------------------------------------------
 # Naming convention: <type>-<workload>-<environment>-<region code>[-<suffix>]
-#   rg-rabt-pilot-uaen, apim-rabt-pilot-uaen, kv-rabt-pilot-uaen, srch-rabt-pilot-uaen ...
-# Names without hyphens (Storage, ACR) drop them: strabtpilotuaenkb, crrabtpilotuaen.
+#   rg-rabt-pilot-sea, apim-rabt-pilot-sea, kv-rabt-pilot-sea, srch-rabt-pilot-sea ...
+# Names without hyphens (Storage, ACR) drop them: strabtpilotseakb, crrabtpilotsea.
+# Services placed in another region by location_overrides carry that region's code (oai-rabt-pilot-aue).
 # Abbreviations follow the Microsoft Cloud Adoption Framework list.
 # ---------------------------------------------------------------------------
 locals {
   region_codes = {
-    uaenorth      = "uaen"
-    uaecentral    = "uaec"
-    swedencentral = "swc"
-    eastus2       = "eus2"
-    eastus        = "eus"
-    westeurope    = "weu"
-    northeurope   = "neu"
-    francecentral = "frc"
+    southeastasia = "sea"
+    australiaeast = "aue"
   }
 
   region = local.region_codes[var.location]

@@ -44,12 +44,12 @@ variable "environment" {
 }
 
 variable "location" {
-  description = "Primary region. UAE North keeps data in the UAE where the service is available there."
+  description = "Primary region (Singapore). Australia East is the fallback for services or models not offered in Southeast Asia."
   type        = string
-  default     = "uaenorth"
+  default     = "southeastasia"
 
   validation {
-    condition     = contains(["uaenorth", "uaecentral", "swedencentral", "eastus2", "westeurope", "francecentral", "northeurope", "eastus"], var.location)
+    condition     = contains(["southeastasia", "australiaeast"], var.location)
     error_message = "location must be one of the regions in local.region_codes (add a short code there to use another region)."
   }
 }
@@ -57,16 +57,22 @@ variable "location" {
 variable "allowed_locations" {
   description = "Regions this stack may use. Every location and override must be in this list."
   type        = list(string)
-  default     = ["uaenorth", "uaecentral", "swedencentral", "eastus2", "westeurope", "francecentral"]
+  default     = ["southeastasia", "australiaeast"]
 }
 
 variable "location_overrides" {
   description = <<-EOT
     Per-service region overrides for services or models that are not available in var.location.
-    Keys: openai, content_safety, apim, redis, search. Example: { openai = "swedencentral" }.
+    Keys: openai, content_safety, apim, redis, search.
+    Default: Azure OpenAI and Content Safety in Australia East, because Southeast Asia has no regional
+    Standard deployment of gpt-4.1-mini / text-embedding-3-small and no standalone Content Safety
+    text moderation or Prompt Shields (see infra/terraform/README.md, Regions).
   EOT
   type        = map(string)
-  default     = {}
+  default = {
+    openai         = "australiaeast"
+    content_safety = "australiaeast"
+  }
 
   validation {
     condition     = alltrue([for k in keys(var.location_overrides) : contains(["openai", "content_safety", "apim", "redis", "search"], k)])
@@ -149,8 +155,8 @@ variable "openai_deployments" {
     }
     "chat-strong" = {
       role          = "strong"
-      model_name    = "gpt-4.1"
-      model_version = "2025-04-14"
+      model_name    = "gpt-4o"
+      model_version = "2024-11-20"
       sku_name      = "Standard"
       capacity      = 10
     }

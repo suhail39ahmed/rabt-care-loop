@@ -296,7 +296,7 @@ Details: [docs/responsible-ai.md](docs/responsible-ai.md) · [docs/assumptions-l
 
 ## Deploy / hosting
 
-- **Azure, provisioned by Terraform:** [`infra/terraform`](infra/terraform) has a thin root plus modules for the network, APIM AI gateway, Azure OpenAI, AI Search, Content Safety, Key Vault, storage, monitoring, governance and Container Apps. State lives in an Azure Storage account. Names follow `<type>-rabt-<env>-<region>` (for example `rg-rabt-pilot-uaen`, `apim-rabt-pilot-uaen`).
+- **Azure, provisioned by Terraform:** [`infra/terraform`](infra/terraform) has a thin root plus modules for the network, APIM AI gateway, Azure OpenAI, AI Search, Content Safety, Key Vault, storage, monitoring, governance and Container Apps. State lives in an Azure Storage account. Names follow `<type>-rabt-<env>-<region>` (for example `rg-rabt-pilot-sea`, `apim-rabt-pilot-sea`). Primary region is Singapore (`southeastasia`); Azure OpenAI and Content Safety run in Australia East because the models and Prompt Shields are not offered regionally in Singapore, so prompts are processed in Australia (see the Terraform README, Regions).
 - **GitHub Actions, OIDC only (no stored cloud secrets):**
   - `infra.yml`: `terraform plan` on pull requests that touch `infra/terraform`; `apply` on `main` or manual dispatch, behind the `pilot` environment approval.
   - `deploy.yml`: builds the API and web images, pushes them to ACR and rolls them out to Container Apps, behind the same environment approval.

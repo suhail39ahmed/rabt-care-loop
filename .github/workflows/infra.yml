@@ -42,8 +42,8 @@ env:
   ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
   TF_VAR_apim_publisher_email: ${{ vars.APIM_PUBLISHER_EMAIL }}
   TF_VAR_budget_contact_emails: ${{ vars.BUDGET_CONTACT_EMAILS }}
-  STATE_RG: ${{ vars.TF_STATE_RESOURCE_GROUP || 'rg-rabt-tfstate-uaen' }}
-  STATE_SA: ${{ vars.TF_STATE_STORAGE_ACCOUNT || 'strabttfstateuaen' }}
+  STATE_RG: ${{ vars.TF_STATE_RESOURCE_GROUP || 'rg-rabt-tfstate-sea' }}
+  STATE_SA: ${{ vars.TF_STATE_STORAGE_ACCOUNT || 'strabttfstatesea' }}
   STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER || 'tfstate' }}
   STATE_KEY: ${{ vars.TF_STATE_KEY || 'rabt/pilot.tfstate' }}
 

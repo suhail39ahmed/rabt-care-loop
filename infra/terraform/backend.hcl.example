@@ -1,12 +1,12 @@
 # Copy to backend.hcl (git-ignored) and run:  terraform init -backend-config=backend.hcl
 # The state storage is created once, by hand, before the first init (see README.md, First-time bootstrap):
-#   az group create -n rg-rabt-tfstate-uaen -l uaenorth
-#   az storage account create -n strabttfstateuaen -g rg-rabt-tfstate-uaen -l uaenorth --sku Standard_ZRS \
+#   az group create -n rg-rabt-tfstate-sea -l southeastasia
+#   az storage account create -n strabttfstatesea -g rg-rabt-tfstate-sea -l southeastasia --sku Standard_ZRS \
 #     --min-tls-version TLS1_2 --allow-blob-public-access false --allow-shared-key-access false
-#   az storage container create -n tfstate --account-name strabttfstateuaen --auth-mode login
+#   az storage container create -n tfstate --account-name strabttfstatesea --auth-mode login
 #   az role assignment create --role "Storage Blob Data Contributor" --assignee <you or the GitHub app> --scope <account id>
-resource_group_name  = "rg-rabt-tfstate-uaen"
-storage_account_name = "strabttfstateuaen"
+resource_group_name  = "rg-rabt-tfstate-sea"
+storage_account_name = "strabttfstatesea"
 container_name       = "tfstate"
 key                  = "rabt/pilot.tfstate"
 use_azuread_auth     = true

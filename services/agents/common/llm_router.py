@@ -1,5 +1,6 @@
 """Per-task model routing with failover log (#101)."""
 from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 

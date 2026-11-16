@@ -1,5 +1,6 @@
 """Mock RAG retrieve over data/kb (#92)."""
 from __future__ import annotations
+
 from pathlib import Path
 from typing import Any
 

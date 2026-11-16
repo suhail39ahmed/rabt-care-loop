@@ -1,5 +1,6 @@
 """In-memory semantic cache stub for general KB answers (#100)."""
 from __future__ import annotations
+
 from typing import Any
 
 _CACHE: dict[str, Any] = {}

@@ -504,6 +504,14 @@ async def approval_decision(token: str, body: DecisionIn, request: Request):
             await mark_approved(db, token)
             result["status"] = "approved"
             result["case"] = case
+        elif result.get("status") == "rejected" and result.get("action") == "exceptional_closure":
+            case = await coordinator.cancel_exceptional_closure(
+                db,
+                result["case_id"],
+                reason=f"rejected by {persona}",
+                actor=persona,
+            )
+            result["case"] = case
         return result
     except ApprovalError as e:
         raise HTTPException(getattr(e, "status_code", 403), str(e)) from e

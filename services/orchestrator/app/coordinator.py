@@ -623,6 +623,8 @@ class Coordinator:
                         if current not in _OPEN_TO_CLOSURE_PENDING and current is not S.ON_HOLD_CONSENT:
                             raise IllegalTransition(f"{current.value} -> ClosurePending")
                         if current is S.ON_HOLD_CONSENT or current in _OPEN_TO_CLOSURE_PENDING:
+                            # Remember where to return on reject / timeout (#51)
+                            evidence["pre_closure_state"] = current.value
                             await self._apply(
                                 db,
                                 case_id,
@@ -633,6 +635,8 @@ class Coordinator:
                                 {},
                             )
                             current = S.CLOSURE_PENDING
+                    elif not evidence.get("pre_closure_state"):
+                        evidence["pre_closure_state"] = S.OWNED.value
                     token = await hitl.request_approval(
                         db,
                         case_id,
@@ -716,6 +720,66 @@ class Coordinator:
             actor="system:hitl",
         )
         return await self.try_close(db, case_id, human={"two_person_approved": True, "approvers": approvers})
+
+    async def cancel_exceptional_closure(
+        self,
+        db: aiosqlite.Connection,
+        case_id: str,
+        *,
+        reason: str,
+        actor: str = "system:hitl",
+    ) -> dict[str, Any]:
+        """Restore pre-close state after reject or timeout of a two-person close (#51)."""
+        from app.state_machine import ALLOWED
+
+        case = await self.ledger.get_case(db, case_id)
+        if not case:
+            raise KeyError(case_id)
+        evidence = dict(case.get("evidence") or {})
+        current = S(case["state"])
+        restore_raw = evidence.get("pre_closure_state") or S.OWNED.value
+        try:
+            restore = S(restore_raw)
+        except ValueError:
+            restore = S.OWNED
+        actor_norm = (
+            actor
+            if str(actor).startswith("human:") or str(actor).startswith("system:")
+            else f"human:{actor}"
+        )
+        if current is S.CLOSURE_PENDING and restore is not S.CLOSURE_PENDING:
+            if restore not in ALLOWED.get(S.CLOSURE_PENDING, set()):
+                restore = S.OWNED
+            await self._apply(
+                db,
+                case_id,
+                current,
+                restore,
+                actor_norm,
+                reason,
+                {},
+            )
+        for key in (
+            "pending_approval_token",
+            "human_reason_code",
+            "human_signer",
+            "requested_by",
+            "two_person_approved",
+            "approvers",
+            "four_eyes_ok",
+            "pre_closure_state",
+        ):
+            evidence.pop(key, None)
+        await self.ledger.update_case(db, case_id, evidence=evidence)
+        await self.ledger.append_timeline(
+            db,
+            case_id,
+            kind="fact",
+            label=f"Close request rejected — restored to {restore.value}",
+            detail=reason,
+            actor=actor_norm,
+        )
+        return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
 
     async def reject_referral(
         self, db: aiosqlite.Connection, case_id: str, reason: str
@@ -947,8 +1011,16 @@ class Coordinator:
             if action == "critical" or safe == "next_ladder_step":
                 await self.advance_ladder(db, case_id)
                 advanced.append(case_id)
-            elif action == "exceptional_closure" or safe == "keep_open":
-                # Timeouts never close a case
+            elif action == "exceptional_closure":
+                # Timeouts never close — restore pre-close state (#51)
+                kept_open.append(case_id)
+                await self.cancel_exceptional_closure(
+                    db,
+                    case_id,
+                    reason=f"approval timed out ({item.get('token', '')})",
+                    actor="system:hitl",
+                )
+            elif safe == "keep_open":
                 kept_open.append(case_id)
                 await self.ledger.append_timeline(
                     db,

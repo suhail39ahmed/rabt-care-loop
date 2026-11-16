@@ -1,0 +1,12 @@
+%{ if mode != "subscription_key" ~}
+<validate-jwt header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized" require-scheme="Bearer">
+      <openid-config url="https://login.microsoftonline.com/${tenant_id}/v2.0/.well-known/openid-configuration" />
+      <audiences>
+        <audience>${audience}</audience>
+      </audiences>
+      <issuers>
+        <issuer>https://login.microsoftonline.com/${tenant_id}/v2.0</issuer>
+        <issuer>https://sts.windows.net/${tenant_id}/</issuer>
+      </issuers>
+    </validate-jwt>
+%{ endif ~}

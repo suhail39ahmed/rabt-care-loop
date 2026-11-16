@@ -1,0 +1,25 @@
+<policies>
+  <inbound>
+    <base />
+    ${auth}
+    <choose>
+      <when condition="@(!(context.Request.Url.Path.EndsWith(&quot;text:analyze&quot;) || context.Request.Url.Path.EndsWith(&quot;text:shieldPrompt&quot;)))">
+        <return-response>
+          <set-status code="403" reason="Only text:analyze and text:shieldPrompt are allowed" />
+        </return-response>
+      </when>
+    </choose>
+    <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+    <authentication-managed-identity resource="https://cognitiveservices.azure.com" />
+    <set-backend-service backend-id="${backend_id}" />
+  </inbound>
+  <backend>
+    <forward-request timeout="15" />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

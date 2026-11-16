@@ -6,14 +6,12 @@ import os
 import tempfile
 
 import pytest
-
 from app.coordinator import Coordinator
 from app.demo_seed import obs_hba1c
 from app.hitl import list_approvals, mark_approved, submit_decision
 from app.ledger import Ledger
 from app.reference_data import DEMO_PATIENTS
 from app.state_machine import IllegalTransition, S
-
 
 OPEN_STATES = [
     "AwaitingOwner",

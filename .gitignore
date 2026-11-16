@@ -21,7 +21,7 @@ infra/.azure/
 .coverage
 htmlcov/
 
-# personal study material, not part of the submission
+# personal study material (local only)
 /learn/
 apps/web/app/learn/
 apps/web/lib/learn-*

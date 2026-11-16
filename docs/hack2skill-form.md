@@ -20,11 +20,11 @@ Two-person closure, multi-step escalation timer + demo clock, golden 10/10, simu
 
 ## Honest next / optional
 
-- Azure AI Content Safety and LLM rewrite are **optional and off** in the live demo; lexicon guardrails always on (`GET /healthz`).
+- Azure AI Content Safety and LLM rewrite are **optional and off** (`AI_ENABLED=false`); lexicon guardrails always on (`GET /healthz`).
 - MCP tool servers are a **prototype**, not on the demo path.
-- Deck PDF export and any video re-record for post-P0 behaviour (attend → outcome → close).
+- Insurance Navigator and RAG use demo/mock paths; Azure IaC is ready under `infra/terraform/`.
 
 ## Contact / video
 
 - Video: https://youtu.be/Qe9OF5uIzyg
-- Deck: attach exported `Rabt_Deck.pdf` (< 5 MB) once slides are updated (no TBD / “in progress” / confirm placeholders).
+- Deck: export from [deck-outline.md](deck-outline.md) to `Rabt_Deck.pdf` (< 5 MB); claims must match [submission-claims.md](submission-claims.md).

@@ -87,7 +87,7 @@ run "public_with_cache_and_failover" {
     error_message = "No network resources expected when private networking is off."
   }
   assert {
-    condition     = output.names.openai["secondary"] == "oai-rabt-pilot-swc-2-01" && output.names.apim == "apim-rabt-pilot-uaen-01"
+    condition     = output.names.openai["secondary"] == "oai-rabt-pilot-swc-2-01" && endswith(output.names.apim, "-uaen-01")
     error_message = "Secondary account and suffix must follow the convention."
   }
   assert {

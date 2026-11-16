@@ -30,3 +30,6 @@ apps/web/public/learn-assets/
 docs/FutureHealth_Solution_Plan.md
 docs/learn-agents.md
 .hypothesis/
+
+# Local KB suggestions written by the running demo (reviewed in the app, never committed)
+data/kb/_pending/*.md

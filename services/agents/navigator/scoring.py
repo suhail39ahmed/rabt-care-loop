@@ -27,6 +27,22 @@ SPECIALTY_FOR_PATHWAY = {
 }
 
 
+
+def _days_en(n: object) -> str:
+    if not isinstance(n, int):
+        return "? days"
+    return "1 day" if n == 1 else f"{n} days"
+
+
+def _days_ar(n: object) -> str:
+    if not isinstance(n, int):
+        return "? أيام"
+    if n == 1:
+        return "يوم واحد"
+    if n == 2:
+        return "يومين"
+    return f"{n} أيام" if 3 <= n <= 10 else f"{n} يومًا"
+
 def score_options(
     pathway: str,
     plan_network: set[str],
@@ -60,11 +76,11 @@ def score_options(
             "score": round(score, 2),
             "rationale_en": (
                 f"{label_en} · pay AED {path['patient_upfront_aed']} at visit · "
-                f"{p.get('distance_km', '?')} km · earliest in {p.get('earliest_days', '?')} days"
+                f"{p.get('distance_km', '?')} km · earliest in {_days_en(p.get('earliest_days'))}"
             ),
             "rationale_ar": (
                 f"{label_ar} · تدفع {path['patient_upfront_aed']} درهم عند الزيارة · "
-                f"{p.get('distance_km', '?')} كم · أقرب موعد خلال {p.get('earliest_days', '?')} أيام"
+                f"{p.get('distance_km', '?')} كم · أقرب موعد خلال {_days_ar(p.get('earliest_days'))}"
             ),
         }
         if mode == "reimbursement":

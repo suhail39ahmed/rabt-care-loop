@@ -109,7 +109,30 @@ function boardStateLabel(c: Case): string {
   ) {
     return "Attended — outcome needed";
   }
-  return c.state;
+  return humanizeState(c.state);
+}
+
+const STATE_TEXT: Record<string, string> = {
+  OnHoldConsent: "On hold (consent)",
+  DataQuery: "Data query",
+  AwaitingOwner: "Awaiting owner",
+  PatientNotified: "Patient notified",
+  HumanCallback: "Human callback",
+  ReferralRejected: "Referral rejected",
+  ClosurePending: "Closure pending",
+  ClosedByHuman: "Closed by human",
+  NoShow: "No-show",
+};
+
+function humanizeState(state: string): string {
+  return STATE_TEXT[state] || state.replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
+function urgencyTag(u?: string): { cls: string; text: string } {
+  if (u === "CRITICAL") return { cls: "urgent", text: "Critical" };
+  if (u === "URGENT") return { cls: "calculated", text: "Urgent" };
+  if (u === "ROUTINE") return { cls: "role", text: "Routine" };
+  return { cls: "role", text: "Not triaged" };
 }
 
 export default function BoardPage() {
@@ -139,9 +162,19 @@ export default function BoardPage() {
     refresh().catch((e) => setErr(String(e)));
   }, [refresh, persona]);
 
+  // Deep links from the demo tour: /board?focus=<case_id>
+  useEffect(() => {
+    const focus = new URLSearchParams(window.location.search).get("focus");
+    if (focus) openCase(focus).catch(() => setErr(`Case ${focus} not found (the demo may have been reset).`));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const openCase = async (id: string) => {
     const c = await api<Case>(`/cases/${id}`);
     setSelected(c);
+    if (typeof window !== "undefined" && window.innerWidth < 860) {
+      requestAnimationFrame(() => document.getElementById("case-detail")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }
   };
 
   const afterAction = async (id: string, message?: string) => {
@@ -405,9 +438,14 @@ export default function BoardPage() {
             >
               <button type="button" style={{ all: "unset", cursor: "pointer", display: "block", width: "100%" }} onClick={() => openCase(q.case_id)}>
                 <strong>{q.title}</strong>
-                <div className="muted">
-                  {q.urgency} · {q.kind}
-                  {q.ladder_step ? ` · ladder ${q.ladder_step}` : ""}
+                <div className="muted queue-meta">
+                  {(() => {
+                    const qc = cases.find((x) => x.case_id === q.case_id);
+                    const who = (qc?.evidence as { patient_display_name?: string } | undefined)?.patient_display_name;
+                    return qc ? `${qc.result_display || q.case_id}${who ? ` · ${who}` : ""} · ` : "";
+                  })()}
+                  {urgencyTag(q.urgency).text} · {q.kind.replace(/_/g, " ")}
+                  {q.ladder_step ? ` · ladder step ${q.ladder_step}` : ""}
                 </div>
               </button>
               <button
@@ -432,9 +470,7 @@ export default function BoardPage() {
             >
               <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem" }}>
                 <strong>{c.result_display || c.case_id}</strong>
-                <span className={`tag ${c.urgency === "CRITICAL" ? "urgent" : "calculated"}`}>
-                  {c.urgency || "—"}
-                </span>
+                <span className={`tag ${urgencyTag(c.urgency).cls}`}>{urgencyTag(c.urgency).text}</span>
               </div>
               <div className="muted">
                 {boardStateLabel(c)} ·{" "}
@@ -446,17 +482,26 @@ export default function BoardPage() {
           ))}
         </section>
 
-        <section className="panel">
+        <section className="panel" id="case-detail" aria-label="Case detail">
           {!selected ? (
-            <p className="muted">Select a case to see the fact / calculated / AI timeline and human actions.</p>
+            <div className="empty-state">
+              <h2 className="section-title">No case selected</h2>
+              <p className="muted" style={{ margin: 0 }}>
+                Pick a case or a queue item to see its timeline (fact, calculated, AI) and the actions open to the persona
+                you are acting as.
+              </p>
+              {queue[0] ? (
+                <button type="button" className="btn" onClick={() => openCase(queue[0].case_id)}>
+                  Open the top queue item
+                </button>
+              ) : null}
+            </div>
           ) : null}
           {selected ? (
             <>
               <div className="chip-row">
                 <span className="tag role">{boardStateLabel(selected)}</span>
-                <span className={`tag ${selected.urgency === "CRITICAL" ? "urgent" : "calculated"}`}>
-                  {selected.urgency}
-                </span>
+                <span className={`tag ${urgencyTag(selected.urgency).cls}`}>{urgencyTag(selected.urgency).text}</span>
                 {selected.ladder_step ? <span className="tag calculated">Ladder {selected.ladder_step}</span> : null}
               </div>
               <h2 style={{ fontFamily: "var(--font-display)", letterSpacing: "-0.02em" }}>

@@ -28,6 +28,7 @@ type Case = {
     patient_display_name?: string;
     patient_display_name_ar?: string;
     payment_mode?: string;
+    booked_option?: string;
     claim?: Claim;
   };
   messages: Array<
@@ -45,7 +46,14 @@ type Case = {
     rationale_en?: string;
     rationale_ar?: string;
   }>;
-  reassurance?: { answer: string; citations?: Array<{ id: string }>; hand_off_offered?: boolean };
+  reassurance?: {
+    answer: string;
+    citations?: Array<{ id: string; title?: string }>;
+    hand_off?: boolean;
+    hand_off_offered?: boolean;
+    ai_generated?: boolean;
+    gap?: boolean;
+  };
   concern?: { intent: string; crisis?: boolean; snippet?: string };
 };
 
@@ -66,6 +74,39 @@ type Claim = {
   insurer_ack?: { claim_reference?: string; decision_days?: number };
 };
 
+const STEPS: Array<[string, string]> = [
+  ["Result", "النتيجة"],
+  ["Understood", "الفهم"],
+  ["Choose care", "اختيار الرعاية"],
+  ["Booked", "الحجز"],
+  ["Closed", "الإغلاق"],
+];
+
+function stepIndex(state: string): number {
+  if (state === "Closed" || state === "ClosedByHuman") return 4;
+  if (["Booked", "NoShow", "Attended", "ClosurePending"].includes(state)) return 3;
+  if (state === "Referred" || state === "ReferralRejected") return 2;
+  if (state === "Understood") return 1;
+  return 0;
+}
+
+const BOOKED_STATES = ["Booked", "Attended", "ClosurePending", "Closed", "ClosedByHuman"];
+
+/** Turn an API error ("{"detail": "..."}" or plain text) into a sentence a patient can read. */
+function friendlyError(raw: string, rtl: boolean): string {
+  let detail = raw.replace(/^Error:\s*/, "");
+  try {
+    const parsed = JSON.parse(detail);
+    if (parsed && typeof parsed.detail === "string") detail = parsed.detail;
+  } catch {
+    /* plain text */
+  }
+  if (/failed to fetch|network/i.test(detail)) {
+    return rtl ? "تعذر الاتصال بالخدمة. حاول مرة أخرى بعد لحظات." : "We could not reach the service. Please try again in a moment.";
+  }
+  return rtl ? `تعذر إكمال الطلب: ${detail}` : `That did not work: ${detail}`;
+}
+
 const PAY_LABEL: Record<string, [string, string]> = {
   cashless: ["Cashless (network)", "بدون دفع مسبق (ضمن الشبكة)"],
   reimbursement: ["Pay & claim back", "ادفع ثم استرد"],
@@ -79,7 +120,8 @@ export default function PatientCasePage() {
   const lang = search.get("lang") === "en" ? "en" : "ar";
   const [c, setC] = useState<Case | null>(null);
   const [answers, setAnswers] = useState<string[]>([]);
-  const [question, setQuestion] = useState(lang === "ar" ? "هل لدي سرطان؟" : "Do I have cancer?");
+  const [question, setQuestion] = useState("");
+  const [ttsNote, setTtsNote] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [notFound, setNotFound] = useState(false);
@@ -116,8 +158,9 @@ export default function PatientCasePage() {
   }, [lang, rtl]);
 
   useEffect(() => {
-    setQuestion(lang === "ar" ? "هل لدي سرطان؟" : "Do I have cancer?");
+    setQuestion("");
     setAnswers([]);
+    setTtsNote("");
   }, [lang]);
 
   const latestMsg = useMemo(() => {
@@ -178,6 +221,17 @@ export default function PatientCasePage() {
     askHint: rtl ? "نجيب فقط من قاعدة المعرفة المعتمدة" : "Answers only from the approved knowledge base",
     talk: rtl ? "تحدث إلى شخص" : "Talk to a person",
     submit: rtl ? "إرسال" : "Submit",
+    askBtn: rtl ? "اسأل" : "Ask",
+    askPlaceholder: rtl ? "مثال: ماذا تعني نتيجتي؟" : "For example: what does my result mean?",
+    sources: rtl ? "المصادر المعتمدة" : "Approved sources",
+    handoff: rtl ? "سيتواصل معك شخص من فريق الرعاية." : "A person from your care team will follow up.",
+    appt: rtl ? "موعدك" : "Your appointment",
+    apptClose: rtl
+      ? "سيؤكد فريق الرعاية حضورك ويغلق الحلقة بدليل موثّق."
+      : "Your care team confirms the visit and closes the loop with evidence.",
+    progress: rtl ? "تقدّم رعايتك" : "Your progress",
+    listen: rtl ? "استمع" : "Listen",
+    noVoice: rtl ? "لا يتوفر صوت عربي على هذا الجهاز." : "No voice for this language on this device.",
     back: rtl ? "العودة" : "Back",
     state: rtl ? "حالة الحلقة" : "Loop state",
     waking: rtl ? "إيقاظ العرض التجريبي (حتى ~20 ثانية)…" : "Waking up the demo (up to ~20 s)…",
@@ -196,14 +250,28 @@ export default function PatientCasePage() {
     return (
       <main className="shell phone-shell" dir={rtl ? "rtl" : "ltr"}>
         {notFound || missing ? (
-          <>
-            <p>{t.missing}</p>
+          <section className="panel empty-state" role="alert">
+            <h1 className="section-title">{t.missing}</h1>
             <Link className="btn" href="/">
               {t.back}
             </Link>
-          </>
+          </section>
+        ) : err ? (
+          <section className="panel empty-state" role="alert">
+            <p>{friendlyError(err, rtl)}</p>
+            <button type="button" className="btn" onClick={() => load()}>
+              {rtl ? "حاول مرة أخرى" : "Try again"}
+            </button>
+          </section>
         ) : (
-          <p className="muted">{err || t.waking}</p>
+          <section className="panel skeleton" aria-busy="true" aria-live="polite">
+            <span className="sr-only">{t.waking}</span>
+            <div className="sk sk-line short" />
+            <div className="sk sk-title" />
+            <div className="sk sk-line" />
+            <div className="sk sk-line" />
+            <p className="muted small" aria-hidden>{t.waking}</p>
+          </section>
         )}
       </main>
     );
@@ -220,6 +288,10 @@ export default function PatientCasePage() {
       setBusy(false);
     }
   };
+
+  const bookedOption = BOOKED_STATES.includes(c.state)
+    ? (c.options || []).find((o) => o.id === c.evidence?.booked_option)
+    : undefined;
 
   const urgencyLabel =
     lang === "ar"
@@ -262,7 +334,26 @@ export default function PatientCasePage() {
       </div>
 
       <div className="banner rise d2">{t.notDx}</div>
-      {err ? <div className="banner">{err}</div> : null}
+      {err ? (
+        <div className="banner" role="alert">
+          {friendlyError(err, rtl)}
+        </div>
+      ) : null}
+
+      <ol className="stepper rise d2" aria-label={t.progress}>
+        {STEPS.map(([en, ar], i) => {
+          const at = stepIndex(c.state);
+          const status = i < at ? "done" : i === at ? "current" : "todo";
+          return (
+            <li key={en} className={status} aria-current={status === "current" ? "step" : undefined}>
+              <span className="dot" aria-hidden>
+                {status === "done" ? "✓" : i + 1}
+              </span>
+              <span className="label">{rtl ? ar : en}</span>
+            </li>
+          );
+        })}
+      </ol>
 
       <section className="panel result-hero rise d2">
         <div className="chip-row">
@@ -291,28 +382,47 @@ export default function PatientCasePage() {
           {t.owner}: <strong>{c.owner_name || "—"}</strong>
         </p>
         {viewMsg?.text ? (
-          <p style={{ whiteSpace: "pre-wrap", marginTop: "1rem", position: "relative" }}>
-            {viewMsg.ai_generated ? <span className="tag ai">AI</span> : null} {viewMsg.text}{" "}
-            <button
-              type="button"
-              className="btn ghost"
-              aria-label={rtl ? "استمع" : "Listen"}
-              onClick={() => {
-                if (typeof window === "undefined" || !window.speechSynthesis) return;
-                const u = new SpeechSynthesisUtterance(viewMsg.text || "");
-                u.lang = lang === "ar" ? "ar-AE" : "en-US";
-                window.speechSynthesis.cancel();
-                window.speechSynthesis.speak(u);
-              }}
-            >
-              {rtl ? "استمع" : "Listen"}
-            </button>
-          </p>
+          <div style={{ marginTop: "1rem", position: "relative" }}>
+            <p style={{ whiteSpace: "pre-wrap", margin: 0 }}>
+              {viewMsg.ai_generated ? (
+                <>
+                  <span className="tag ai">AI</span>{" "}
+                </>
+              ) : null}
+              {viewMsg.text.trim()}
+            </p>
+            <div className="row-actions" style={{ justifyContent: "flex-start" }}>
+              <button
+                type="button"
+                className="btn secondary btn-sm"
+                onClick={() => {
+                  if (typeof window === "undefined" || !window.speechSynthesis) {
+                    setTtsNote(t.noVoice);
+                    return;
+                  }
+                  const want = lang === "ar" ? "ar" : "en";
+                  const voices = window.speechSynthesis.getVoices();
+                  if (voices.length && !voices.some((v) => v.lang.toLowerCase().startsWith(want))) {
+                    setTtsNote(t.noVoice);
+                  } else {
+                    setTtsNote("");
+                  }
+                  const u = new SpeechSynthesisUtterance(viewMsg.text || "");
+                  u.lang = lang === "ar" ? "ar-AE" : "en-US";
+                  window.speechSynthesis.cancel();
+                  window.speechSynthesis.speak(u);
+                }}
+              >
+                <span aria-hidden>🔊</span> {t.listen}
+              </button>
+            </div>
+            {ttsNote ? (
+              <p className="muted small" role="status">
+                {ttsNote}
+              </p>
+            ) : null}
+          </div>
         ) : null}
-        <p className="muted" style={{ marginTop: "0.75rem", fontSize: "0.85rem" }}>
-          Extra approved snippets (hi/ur/ml/fil/bn) live in{" "}
-          <code>data/templates/i18n/patient_snippets.yaml</code> for pilot expansion.
-        </p>
       </section>
 
       {viewMsg?.teachback?.length && c.state === "PatientNotified" ? (
@@ -364,7 +474,29 @@ export default function PatientCasePage() {
         </section>
       ) : null}
 
-      {c.options?.length ? (
+      {bookedOption ? (
+        <section className="panel soft rise d3 appointment" style={{ marginTop: "0.9rem" }} aria-labelledby="appt-title">
+          <h2 id="appt-title" style={{ fontFamily: "var(--font-display)", marginTop: 0 }}>
+            {t.appt}
+          </h2>
+          <div className="chip-row" style={{ marginBottom: "0.35rem" }}>
+            <span className="tag ok">{stateLabel}</span>
+            {bookedOption.payment ? (
+              <span className={`tag ${bookedOption.payment.mode === "cashless" ? "ok" : "calculated"}`}>
+                {PAY_LABEL[bookedOption.payment.mode]?.[rtl ? 1 : 0] ?? bookedOption.payment.mode}
+              </span>
+            ) : null}
+          </div>
+          <strong style={{ fontFamily: "var(--font-display)" }}>{bookedOption.name}</strong>
+          <p className="muted" style={{ margin: "0.35rem 0 0.6rem" }}>
+            {rtl ? bookedOption.rationale_ar : bookedOption.rationale_en}
+          </p>
+          {bookedOption.payment ? <p style={{ margin: "0 0 0.6rem" }}>{payExplain(bookedOption.payment, rtl)}</p> : null}
+          <p className="muted small" style={{ margin: 0 }}>
+            {t.apptClose}
+          </p>
+        </section>
+      ) : c.options?.length ? (
         <section className="panel soft rise d3" style={{ marginTop: "0.9rem" }}>
           <h2 style={{ fontFamily: "var(--font-display)", marginTop: 0 }}>{t.next}</h2>
           <p className="muted">{t.network}</p>
@@ -378,7 +510,6 @@ export default function PatientCasePage() {
                       {PAY_LABEL[o.payment.mode]?.[rtl ? 1 : 0] ?? o.payment.mode}
                     </span>
                   ) : null}
-                  <span className="tag calculated">score {o.score}</span>
                 </div>
                 <strong style={{ fontFamily: "var(--font-display)" }}>{o.name}</strong>
                 <p className="muted" style={{ margin: "0.35rem 0 0.75rem" }}>
@@ -488,7 +619,8 @@ export default function PatientCasePage() {
           <input
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            aria-label={rtl ? "سؤالك" : "Your question"}
+            placeholder={t.askPlaceholder}
+            maxLength={500}
             style={{
               display: "block",
               width: "100%",
@@ -505,7 +637,7 @@ export default function PatientCasePage() {
           <button
             className="btn"
             type="button"
-            disabled={busy}
+            disabled={busy || !question.trim()}
             onClick={() =>
               run(async () => {
                 const updated = await api<Case>(`/cases/${c.case_id}/reassure`, {
@@ -516,11 +648,30 @@ export default function PatientCasePage() {
               })
             }
           >
-            {t.submit}
+            {busy ? "…" : t.askBtn}
           </button>
         </div>
         {c.reassurance?.answer ? (
-          <p style={{ whiteSpace: "pre-wrap", marginTop: "0.9rem" }}>{c.reassurance.answer}</p>
+          <div className="answer" aria-live="polite">
+            <p style={{ whiteSpace: "pre-wrap", margin: 0 }}>
+              {c.reassurance.ai_generated ? (
+                <>
+                  <span className="tag ai">AI</span>{" "}
+                </>
+              ) : null}
+              {c.reassurance.answer}
+            </p>
+            {c.reassurance.citations?.length ? (
+              <p className="muted small" style={{ margin: "0.5rem 0 0" }}>
+                {t.sources}: {Array.from(new Set(c.reassurance.citations.map((x) => x.title || x.id))).join(" · ")}
+              </p>
+            ) : null}
+            {c.reassurance.hand_off || c.reassurance.gap ? (
+              <p className="small" style={{ margin: "0.5rem 0 0" }}>
+                <span className="tag human">{t.talk}</span> {t.handoff}
+              </p>
+            ) : null}
+          </div>
         ) : null}
         <h3 style={{ fontFamily: "var(--font-display)", marginTop: "1.2rem" }}>
           {rtl ? "لديّ قلق" : "I have a concern"}
@@ -528,9 +679,10 @@ export default function PatientCasePage() {
         <button
           className="btn secondary"
           type="button"
-          disabled={busy}
+          disabled={busy || !question.trim()}
           onClick={() =>
             run(async () => {
+              if (!question.trim()) return;
               const updated = await api<Case & { concern?: { snippet?: string } }>(`/cases/${c.case_id}/concern`, {
                 method: "POST",
                 body: JSON.stringify({ text: question, language: lang }),
@@ -547,4 +699,19 @@ export default function PatientCasePage() {
       </section>
     </main>
   );
+}
+
+function payExplain(p: Payment, rtl: boolean): string {
+  if (p.mode === "cashless") {
+    return rtl
+      ? `بدون دفع مسبق: أظهر بطاقة التأمين في العيادة. تدفع فقط ${p.patient_upfront_aed} درهم.`
+      : `Cashless: show your insurance card at the clinic. You pay only AED ${p.patient_upfront_aed}.`;
+  }
+  if (p.mode === "reimbursement") {
+    const days = p.claim_window_days ? (rtl ? ` خلال ${p.claim_window_days} يومًا` : ` within ${p.claim_window_days} days`) : "";
+    return rtl
+      ? `تدفع ${p.patient_upfront_aed} درهم عند الزيارة ثم تسترد ${p.expected_reimbursement_aed} درهم من التأمين${days}. نتابع المطالبة معك أدناه.`
+      : `Pay AED ${p.patient_upfront_aed} at the visit, then claim AED ${p.expected_reimbursement_aed} back from your insurer${days}. We track the claim with you below.`;
+  }
+  return rtl ? `دفع ذاتي: ${p.patient_upfront_aed} درهم عند الزيارة.` : `Self-pay: AED ${p.patient_upfront_aed} at the visit.`;
 }

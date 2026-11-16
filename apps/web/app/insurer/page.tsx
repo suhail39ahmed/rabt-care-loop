@@ -123,7 +123,7 @@ export default function InsurerPage() {
         )}
         {ex && ex.exchanges.length > 0 && (
           <div className="table-scroll">
-            <table className="data-table">
+            <table className="data-table stack">
               <thead>
                 <tr>
                   <th scope="col">Time</th>
@@ -136,14 +136,16 @@ export default function InsurerPage() {
               <tbody>
                 {ex.exchanges.map((e, i) => (
                   <tr key={`${e.at}-${i}`}>
-                    <td>{new Date(e.at * 1000).toLocaleTimeString()}</td>
-                    <td>{e.skill}</td>
-                    <td>{e.case_id || "—"}</td>
-                    <td>
-                      <span className={`tag ${e.outcome === "accepted" ? "role" : "warn"}`}>{OUTCOME[e.outcome]}</span>{" "}
-                      {e.reason_code}
+                    <td data-label="Time">{new Date(e.at * 1000).toLocaleTimeString()}</td>
+                    <td data-label="Skill">{e.skill}</td>
+                    <td data-label="Case">{e.case_id || "—"}</td>
+                    <td data-label="Result">
+                      <span>
+                        <span className={`tag ${e.outcome === "accepted" ? "role" : "warn"}`}>{OUTCOME[e.outcome]}</span>{" "}
+                        {e.reason_code}
+                      </span>
                     </td>
-                    <td className="muted">
+                    <td className="muted" data-label="Checks">
                       {e.signature_verified ? "signature verified · " : `${e.transport} · `}
                       schema checked
                       {e.dropped_fields.length > 0 && ` · dropped ${e.dropped_fields.join(", ")}`}

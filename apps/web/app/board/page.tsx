@@ -14,6 +14,7 @@ type Evidence = {
   approvers?: string[];
   call_outcome?: string;
   expert_call_script?: string;
+  coverage?: Record<string, unknown>;
 };
 
 type Case = {
@@ -50,6 +51,15 @@ type Case = {
     language_match?: boolean;
   }>;
   result_value?: string | number;
+  coverage?: {
+    covered?: boolean;
+    preauth_required?: boolean;
+    preauth_status?: string;
+    patient_cost_aed?: number | null;
+    plan_name?: string;
+    reason_code?: string;
+    scenario?: string;
+  };
 };
 
 type QueueItem = {
@@ -444,6 +454,17 @@ export default function BoardPage() {
                 <strong>Evidence:</strong>{" "}
                 <span className="muted">{evidenceBits(selected.evidence)}</span>
               </p>
+              {(selected.coverage || selected.evidence?.coverage) && (
+                <div className="panel soft" style={{ marginBottom: "0.75rem", boxShadow: "none" }}>
+                  <strong>Coverage (Demo Health Insurance)</strong>
+                  <p className="muted" style={{ margin: "0.25rem 0 0" }}>
+                    {JSON.stringify(selected.coverage || selected.evidence?.coverage)}
+                  </p>
+                  {(selected.coverage || selected.evidence?.coverage)?.preauth_status === "pending" ? (
+                    <p className="muted">Booking blocked until pre-auth clears.</p>
+                  ) : null}
+                </div>
+              )}
               <div className="actions">
                 {selected.state === "AwaitingOwner" ? (
                   <button className="btn" type="button" onClick={() => accept(selected.case_id)}>

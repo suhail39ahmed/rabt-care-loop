@@ -207,6 +207,13 @@ async def seed_demo(ledger: Ledger, coordinator: Coordinator) -> dict[str, str]:
     case10 = await ledger.get_case(db, c10["case_id"])
     opts = case10.get("options") or []
     if opts:
+        # Plan B demo coverage starts preauth-pending; clear so GC-10 can seed Booked.
+        evidence = dict(case10.get("evidence") or {})
+        cov = dict(evidence.get("coverage") or {})
+        if cov.get("preauth_status") == "pending":
+            cov["preauth_status"] = "approved"
+            evidence["coverage"] = cov
+            await ledger.update_case(db, c10["case_id"], evidence=evidence)
         await coordinator.book(db, c10["case_id"], opts[0]["id"])
 
     await db.close()

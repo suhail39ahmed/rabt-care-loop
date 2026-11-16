@@ -121,10 +121,9 @@ async def test_two_person_closure_gc08_flow(orch):
     case = await ledger.get_case(db, case["case_id"])
     assert case["state"] == "ClosurePending"
 
-    # same user again — still one vote
-    again = await submit_decision(db, token, "human:dr-sara", "approved")
-    assert again["status"] == "pending"
-    assert again["votes"] == 1
+    # same user again — duplicate vote rejected (#52)
+    with pytest.raises(ApprovalError, match="duplicate"):
+        await submit_decision(db, token, "human:dr-sara", "approved")
 
     threshold = await submit_decision(db, token, "human:supervisor", "approved")
     assert threshold["status"] == "threshold_met"

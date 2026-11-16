@@ -601,10 +601,10 @@ class Coordinator:
                                 {},
                             )
                             current = S.CLOSURE_PENDING
+                    from app.auth import as_actor
+
                     approvers = evidence.get("approvers") or []
-                    actor = approvers[0] if approvers and str(approvers[0]).startswith("human:") else (
-                        f"human:{approvers[0]}" if approvers else "human:board"
-                    )
+                    actor = as_actor(approvers[0]) if approvers else "human:board"
                     await self._apply(
                         db,
                         case_id,
@@ -615,9 +615,13 @@ class Coordinator:
                         {"closure_ok": True, **evidence},
                     )
                 else:
-                    requester = evidence.get("human_signer") or evidence.get("requested_by") or "human:requester"
-                    if not str(requester).startswith("human:"):
-                        requester = f"human:{requester}"
+                    from app.auth import as_actor
+
+                    requester = as_actor(
+                        evidence.get("human_signer")
+                        or evidence.get("requested_by")
+                        or "human:requester"
+                    )
                     # Move any open state into ClosurePending before creating the approval (#25)
                     if current is not S.CLOSURE_PENDING:
                         if current not in _OPEN_TO_CLOSURE_PENDING and current is not S.ON_HOLD_CONSENT:

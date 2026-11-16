@@ -13,7 +13,14 @@ from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
 from app import demo_clock
-from app.auth import ingest_secret_ok, persona_allowed
+from app.auth import (
+    as_actor,
+    canonical_persona,
+    ingest_secret_ok,
+    persona_allowed,
+    role_for,
+    write_role_allowed,
+)
 from app.coordinator import Coordinator
 from app.demo_seed import seed_demo
 from app.hitl import ApprovalError, list_approvals, list_queue, mark_approved, submit_decision
@@ -100,7 +107,15 @@ async def demo_write_auth(request: Request, call_next):
         return JSONResponse({"detail": "X-Rabt-Persona header required for write routes"}, status_code=401)
     if not persona_allowed(persona):
         return JSONResponse({"detail": f"unknown demo persona: {persona}"}, status_code=403)
-    request.state.persona = persona
+    canon = canonical_persona(persona)
+    role = role_for(canon)
+    if not role or not write_role_allowed(path, role):
+        return JSONResponse(
+            {"detail": f"persona role '{role or 'unknown'}' not allowed for this action"},
+            status_code=403,
+        )
+    request.state.persona = canon
+    request.state.role = role
     return await call_next(request)
 
 
@@ -295,14 +310,17 @@ async def ingest(body: ObservationIn):
 
 
 def _persona(request: Request) -> str:
-    return getattr(request.state, "persona", None) or request.headers.get("X-Rabt-Persona") or ""
+    raw = getattr(request.state, "persona", None) or request.headers.get("X-Rabt-Persona") or ""
+    return as_actor(raw) if raw else ""
 
 
 @app.post("/cases/{case_id}/accept")
 async def accept(case_id: str, request: Request, actor: str | None = None):
     db = await ledger.connect()
     try:
-        return await coordinator.accept_ownership(db, case_id, _persona(request) or actor or "human:gp")
+        return await coordinator.accept_ownership(
+            db, case_id, _persona(request) or as_actor(actor or "human:gp-aisha")
+        )
     except IllegalTransition as e:
         raise HTTPException(400, str(e)) from e
     finally:
@@ -449,7 +467,7 @@ async def handle_escalation(case_id: str, request: Request, actor: str | None = 
     db = await ledger.connect()
     try:
         return await coordinator.human_handle_escalation(
-            db, case_id, _persona(request) or actor or "human:coordinator"
+            db, case_id, _persona(request) or as_actor(actor or "human:coordinator-sara")
         )
     except IllegalTransition as e:
         raise HTTPException(400, str(e)) from e

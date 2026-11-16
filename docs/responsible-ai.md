@@ -18,4 +18,4 @@ This is **not** production IAM. The pilot plan is:
 2. UAE PASS (or programme IdP) for patient-facing consent and messaging preferences.
 3. Short-lived tokens; no shared demo secrets in browser storage.
 
-Until then, treat the public URL as a synthetic showcase with rate limits and a single replica.
+Until then, treat the public URL as a synthetic showcase on a single free-tier replica — **not** production IAM. Demo writes use role-checked personas (patient vs clinician); there is no per-IP rate limiter in this demo build.

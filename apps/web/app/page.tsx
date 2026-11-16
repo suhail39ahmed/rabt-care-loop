@@ -36,7 +36,7 @@ export default async function HomePage() {
               ربط · Rabt
             </div>
             <div className="muted" style={{ fontSize: "0.82rem" }}>
-              Care-loop orchestrator for screening follow-up
+              Care-loop demo for screening follow-up
             </div>
           </div>
         </div>

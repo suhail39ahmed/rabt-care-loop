@@ -137,7 +137,7 @@ All benchmark numbers are **simulated on synthetic data**, not real-world outcom
 | Web | Next.js 16, React 19, TypeScript; Arabic RTL | Azure Static Web Apps |
 | Rules / templates / KB | YAML rules, YAML AR/EN templates, Markdown KB | Clinician-approved versions |
 | LLM (optional) | Microsoft Agent Framework + Azure OpenAI (off by default) | Azure AI Foundry |
-| Safety | Lexicon guardrails; Azure AI Content Safety when configured | Content Safety always on |
+| Safety | Lexicon always on; Azure AI Content Safety optional (off in live demo) | See `/healthz` flags |
 | Tools | MCP Python SDK server stubs | Scoped MCP tools over AHDS FHIR |
 | Local mocks | Docker Compose: HAPI FHIR R4, PostgreSQL, Mailpit, Jaeger | Azure Health Data Services, ACS, App Insights |
 | Tests / CI | pytest, pytest-asyncio, Hypothesis; GitHub Actions | + lint, web build, security scans |
@@ -251,7 +251,7 @@ Writes require `X-Rabt-Persona` (except ingest/webhook, which need `X-Rabt-Inges
 
 ## Responsible AI
 
-- **No diagnosis:** a lexicon in English and Arabic blocks diagnostic claims, Azure AI Content Safety runs when configured, and every patient card carries a banner.
+- **No diagnosis:** a lexicon in English and Arabic blocks diagnostic claims; Azure AI Content Safety is optional (off in the live demo — check `GET /healthz`); every patient card carries a banner.
 - **Deterministic safety path:** triage, escalation, navigation scoring and closure never use an LLM.
 - **Human oversight:** critical queue, human triage, teach-back callback, consent pause and two-approver exceptional closure.
 - **Fail safe:** if the LLM or Content Safety is unavailable, the approved template is sent; timeouts never auto-close.
@@ -288,7 +288,7 @@ Details: [docs/responsible-ai.md](docs/responsible-ai.md) · [docs/assumptions-l
 | Next (pilot) | Description |
 |---|---|
 | Data | Azure Health Data Services (FHIR R4) + Event Grid / Service Bus; Synthea cohort |
-| AI | Azure AI Foundry + Content Safety always on for LLM paths |
+| AI | Optional Azure OpenAI rewrite for comms only; lexicon always on; Content Safety optional (see [docs/submission-claims.md](docs/submission-claims.md)) |
 | Identity | Entra ID / UAE PASS |
 | Pilot site | Malaffi + Sehatna FHIR integration; clinician / DoH sign-off |
 

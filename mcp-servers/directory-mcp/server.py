@@ -17,8 +17,16 @@ _ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT / "services" / "orchestrator"))
 
 
+def _scope(tool: str) -> None:
+    sys.path.insert(0, str(_ROOT / "services" / "orchestrator"))
+    from app.tools import assert_tool_allowed
+
+    assert_tool_allowed("navigate", tool)
+
+
 @mcp.tool()
 async def list_providers(specialty: str = "") -> dict:
+    _scope("list_providers")
     async with httpx.AsyncClient(timeout=20) as c:
         r = await c.get(f"{ORCH}/directory/providers")
         r.raise_for_status()
@@ -31,6 +39,7 @@ async def list_providers(specialty: str = "") -> dict:
 @mcp.tool()
 async def search_slots(provider_id: str) -> dict:
     """Synthetic slots for the next 14 days."""
+    _scope("search_slots")
     return {
         "ok": True,
         "provider_id": provider_id,

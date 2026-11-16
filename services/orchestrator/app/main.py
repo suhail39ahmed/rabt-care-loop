@@ -16,7 +16,7 @@ from app import demo_clock
 from app.auth import ingest_secret_ok
 from app.coordinator import Coordinator
 from app.demo_seed import seed_demo
-from app.hitl import ApprovalError, list_approvals, list_queue, submit_decision
+from app.hitl import ApprovalError, list_approvals, list_queue, mark_approved, submit_decision
 from app.ledger import Ledger
 from app.reference_data import PLANS, PROVIDERS
 from app.settings import get_settings
@@ -113,7 +113,7 @@ class ObservationIn(BaseModel):
 
 
 class TeachbackIn(BaseModel):
-    answers: list[str]
+    answers: list[str] = Field(min_length=1)
 
 
 class BookIn(BaseModel):
@@ -340,7 +340,11 @@ async def close_case(case_id: str, body: CloseIn | None = None):
             human.pop("four_eyes_ok", None)
         return await coordinator.try_close(db, case_id, human=human)
     except IllegalTransition as e:
-        raise HTTPException(400, str(e)) from e
+        msg = str(e)
+        code = 409 if "already Closed" in msg else 400
+        raise HTTPException(code, msg) from e
+    except KeyError:
+        raise HTTPException(404, "case not found") from None
     finally:
         await db.close()
 
@@ -413,28 +417,34 @@ async def approval_decision(token: str, body: DecisionIn, request: Request):
     persona = getattr(request.state, "persona", None) or request.headers.get("X-Rabt-Persona")
     if not persona:
         raise HTTPException(401, "X-Rabt-Persona required")
+    if body.decision not in {"approved", "rejected"}:
+        raise HTTPException(422, "decision must be approved or rejected")
     db = await ledger.connect()
     try:
         result = await submit_decision(db, token, persona, body.decision, body.reason)
-        if result.get("status") == "approved" and result.get("action") == "exceptional_closure":
+        if result.get("status") == "threshold_met" and result.get("action") == "exceptional_closure":
             cur = await db.execute(
                 "SELECT user_id FROM approval_votes WHERE token = ? AND decision = 'approved' ORDER BY at ASC",
                 (token,),
             )
             approvers = [r["user_id"] for r in await cur.fetchall()]
-            case = await coordinator.complete_approved_closure(
-                db,
-                result["case_id"],
-                approvers=approvers,
-                evidence=result.get("evidence") or {},
-            )
+            try:
+                case = await coordinator.complete_approved_closure(
+                    db,
+                    result["case_id"],
+                    approvers=approvers,
+                    evidence=result.get("evidence") or {},
+                )
+            except IllegalTransition as e:
+                # Leave approval pending so votes can be retried after a fix (#25)
+                raise HTTPException(400, str(e)) from e
+            await mark_approved(db, token)
+            result["status"] = "approved"
             result["case"] = case
         return result
     except ApprovalError as e:
         raise HTTPException(403, str(e)) from e
     except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-    except IllegalTransition as e:
         raise HTTPException(400, str(e)) from e
     finally:
         await db.close()

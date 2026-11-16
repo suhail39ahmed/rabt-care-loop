@@ -70,13 +70,15 @@ def _sanitize(raw: dict[str, Any]) -> dict[str, Any]:
 def check_coverage(*, plan_id: str, provider_id: str, consent: bool) -> dict[str, Any]:
     if not consent:
         return {"status": "error", "reason_code": "CONSENT_REQUIRED", "covered": False}
-    # Deterministic scenario pick for demo
+    # Deterministic scenario pick for demo.
+    # Preauth is opt-in (plan/provider name), not all of Plan B — otherwise golden
+    # and closure tests that book Fatima/Omar (plan-b) fail at seed/book.
     if "self" in (plan_id or "") or provider_id.endswith("-oon"):
         key = "oon"
-    elif (plan_id or "").endswith("-b"):
-        key = "preauth"
     elif "deny" in (provider_id or ""):
         key = "denied"
+    elif "preauth" in (plan_id or "") or provider_id.endswith("-preauth"):
+        key = "preauth"
     else:
         key = "covered"
     return _sanitize(SCENARIOS[key])

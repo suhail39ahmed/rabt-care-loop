@@ -14,6 +14,8 @@ def test_allowlisted_fields_only():
 
 
 def test_preauth_scenario():
-    out = check_coverage(plan_id="plan-b", provider_id="p1", consent=True)
+    out = check_coverage(plan_id="plan-b-preauth", provider_id="p1", consent=True)
     assert out["preauth_required"] is True
     assert out["preauth_status"] == "pending"
+    covered = check_coverage(plan_id="plan-b", provider_id="p1", consent=True)
+    assert covered["scenario"] == "covered"

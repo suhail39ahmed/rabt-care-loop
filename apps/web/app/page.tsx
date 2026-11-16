@@ -36,19 +36,16 @@ export default async function HomePage() {
               ربط · Rabt
             </div>
             <div className="muted" style={{ fontSize: "0.82rem" }}>
-              Sehatna-style care loop
+              Care-loop orchestrator for screening follow-up
             </div>
           </div>
         </div>
         <div className="actions" style={{ marginTop: 0 }}>
-          <Link className="btn" href="/learn/features">
-            Features deep dive
-          </Link>
-          <Link className="btn ghost" href="/learn">
-            Learn path
-          </Link>
-          <Link className="btn secondary" href="/board">
+          <Link className="btn" href="/board">
             Board
+          </Link>
+          <Link className="btn secondary" href="/admin">
+            KPIs
           </Link>
         </div>
       </div>
@@ -108,18 +105,12 @@ export default async function HomePage() {
           <span className="node det">Closure</span>
         </div>
         <p className="muted" style={{ margin: 0 }}>
-          Yellow = deterministic · Violet = LLM-assisted · Coral = human gate. Full map on{" "}
-          <Link href="/learn" style={{ color: "var(--cyan-deep)", fontWeight: 600 }}>
-            /learn
-          </Link>
-          .
+          Yellow = deterministic · Violet = LLM-assisted · Coral = human gate. Designed to sit alongside a
+          patient app such as Sehatna (mocked here — no affiliation implied).
         </p>
         <div className="actions">
-          <Link className="btn" href="/learn/game">
-            Play Close the Loop
-          </Link>
-          <Link className="btn secondary" href="/learn">
-            Concept notes
+          <Link className="btn" href="/board">
+            Open HITL board
           </Link>
           <Link className="btn secondary" href="/admin">
             Programme KPIs

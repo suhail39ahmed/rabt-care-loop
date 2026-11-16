@@ -205,9 +205,6 @@ export default function BoardPage() {
           >
             Advance +15m
           </button>
-          <Link className="btn ghost" href="/learn">
-            Learn
-          </Link>
           <Link className="btn secondary" href="/">
             Demo home
           </Link>

@@ -23,6 +23,9 @@ htmlcov/
 
 # personal study material, not part of the submission
 /learn/
+apps/web/app/learn/
+apps/web/lib/learn-*
+apps/web/public/learn-assets/
 docs/FutureHealth_Solution_Plan.md
 docs/learn-agents.md
 .hypothesis/

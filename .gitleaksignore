@@ -1,0 +1,2 @@
+# Test fixture string in the first commit of #125 (resource name, not a secret); later commits changed the assertion.
+954d007b6780138f42deaa054c8fdcd6e83c99e9:infra/terraform/tests/plan_mocked.tftest.hcl:generic-api-key:90

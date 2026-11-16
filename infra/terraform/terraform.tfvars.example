@@ -1,0 +1,45 @@
+# Copy to terraform.tfvars (git-ignored). Never put keys or secrets in this file.
+subscription_id = "00000000-0000-0000-0000-000000000000"
+
+name_prefix = "rabt"
+environment = "pilot"
+location    = "uaenorth"
+
+# Services that are not offered (or have no quota) in UAE North go to an allowed fallback region.
+# Check model/region availability before apply; see README "Region and model availability".
+# location_overrides = {
+#   openai         = "swedencentral"
+#   content_safety = "swedencentral"
+# }
+# openai_secondary_location = "eastus2" # optional failover account in the APIM backend pool
+
+enable_private_networking = true
+# Public IPs (CIDR or single IP) allowed through the firewalls while private, so Terraform
+# can write the Key Vault secret and you can run the ingestion script. Leave empty for fully private.
+deployer_ip_allowlist = []
+
+openai_deployments = {
+  chat-small  = { role = "small", model_name = "gpt-4.1-mini", model_version = "2025-04-14", sku_name = "Standard", capacity = 20 }
+  chat-strong = { role = "strong", model_name = "gpt-4.1", model_version = "2025-04-14", sku_name = "Standard", capacity = 10 }
+  embed       = { role = "embedding", model_name = "text-embedding-3-small", model_version = "1", sku_name = "Standard", capacity = 20 }
+}
+
+search_sku             = "basic"
+search_semantic_ranker = "free"
+
+apim_sku_name        = "Developer_1"
+apim_publisher_name  = "Rabt"
+apim_publisher_email = "you@example.com"
+apim_auth_mode       = "subscription_key"
+
+enable_semantic_cache = false
+
+budget_amount         = 100
+budget_contact_emails = ["you@example.com"]
+
+enable_defender_plans = false
+enable_resource_lock  = false
+
+tags = {
+  owner = "suhail"
+}

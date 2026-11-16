@@ -13,7 +13,7 @@
 | API health | https://rabt-api-9oig.onrender.com/healthz |
 | API docs | https://rabt-api-9oig.onrender.com/docs |
 | Demo video | https://youtu.be/Qe9OF5uIzyg |
-| Deck PDF | See issue #37 (export landing with submission pack) |
+| Deck PDF | [docs/deck-outline.md](docs/deck-outline.md) + form text [docs/hack2skill-form.md](docs/hack2skill-form.md) |
 | Repo | https://github.com/suhail39ahmed/rabt-care-loop |
 
 **Hosting:** Render free tier (Oregon). First request after idle can take ~20 s (cold start). SQLite reseeds on each API restart and is shared by all visitors.
@@ -280,6 +280,8 @@ Writes require `X-Rabt-Persona` (except ingest/webhook, which need `X-Rabt-Inges
 ## Responsible AI
 
 - **No diagnosis:** a lexicon in English and Arabic blocks diagnostic claims; Azure AI Content Safety is optional (off in the live demo — check `GET /healthz`); every patient card carries a banner.
+- **Threat model:** [docs/threat-model.md](docs/threat-model.md) (STRIDE → code controls).
+- **Pilot plan:** [docs/pilot-plan.md](docs/pilot-plan.md). Load test script: `scripts/load_test.py` (local only).
 - **Deterministic safety path:** triage, escalation, navigation scoring and closure never use an LLM.
 - **Human oversight:** critical queue, human triage, teach-back callback, consent pause and two-approver exceptional closure.
 - **Fail safe:** if the LLM or Content Safety is unavailable, the approved template is sent; timeouts never auto-close.

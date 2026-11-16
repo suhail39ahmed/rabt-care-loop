@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.6.0"
+  required_version = ">= 1.9.0, < 2.0.0"
 
   required_providers {
     azurerm = {
@@ -20,7 +20,8 @@ terraform {
     }
   }
 
-  # Remote state: copy backend.hcl.example to backend.hcl and run
-  #   terraform init -backend-config=backend.hcl
+  # Remote state in an Azure Storage account (Entra ID auth, no account keys).
+  # Local:  terraform init -backend-config=backend.hcl   (copy backend.hcl.example)
+  # CI:     the infra workflow passes the same values from GitHub variables.
   backend "azurerm" {}
 }

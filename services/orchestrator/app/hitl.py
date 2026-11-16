@@ -84,9 +84,8 @@ async def submit_decision(
             (token, user_id, decision, reason, demo_clock.now()),
         )
         await db.commit()
-    except sqlite3.IntegrityError:
-        # Same user voting twice — keep the first vote; count once
-        pass
+    except sqlite3.IntegrityError as e:
+        raise ApprovalError("duplicate vote", status_code=409) from e
 
     if decision == "rejected":
         # Only reject if this user's (first) vote is reject; duplicate inserts are ignored

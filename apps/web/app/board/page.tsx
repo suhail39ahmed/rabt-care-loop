@@ -12,6 +12,8 @@ type Evidence = {
   attendance_note?: string;
   pending_approval_token?: string;
   approvers?: string[];
+  call_outcome?: string;
+  expert_call_script?: string;
 };
 
 type Case = {
@@ -144,6 +146,14 @@ export default function BoardPage() {
   const handleEscalation = async (id: string) => {
     await api(`/cases/${id}/escalation/handle?actor=${encodeURIComponent(persona)}`, { method: "POST" });
     await afterAction(id);
+  };
+
+  const logCallOutcome = async (id: string, outcome: string) => {
+    await api(`/cases/${id}/call/outcome`, {
+      method: "POST",
+      body: JSON.stringify({ outcome }),
+    });
+    await afterAction(id, `Call outcome: ${outcome}`);
   };
 
   const attend = async (id: string) => {
@@ -440,6 +450,39 @@ export default function BoardPage() {
                   <button className="btn" type="button" onClick={() => callbackDone(selected.case_id)}>
                     Callback done
                   </button>
+                ) : null}
+                {selected.state === "Escalated" && selected.urgency === "CRITICAL" ? (
+                  <>
+                    {selected.evidence?.expert_call_script ? (
+                      <details style={{ width: "100%", marginBottom: "0.5rem" }}>
+                        <summary>Approved call script</summary>
+                        <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.85rem" }}>
+                          {selected.evidence.expert_call_script}
+                        </pre>
+                      </details>
+                    ) : null}
+                    <button
+                      className="btn secondary"
+                      type="button"
+                      onClick={() => logCallOutcome(selected.case_id, "reached_going_now")}
+                    >
+                      Call: going now
+                    </button>
+                    <button
+                      className="btn secondary"
+                      type="button"
+                      onClick={() => logCallOutcome(selected.case_id, "reached_refusing")}
+                    >
+                      Call: refusing
+                    </button>
+                    <button
+                      className="btn secondary"
+                      type="button"
+                      onClick={() => logCallOutcome(selected.case_id, "not_reached")}
+                    >
+                      Call: not reached
+                    </button>
+                  </>
                 ) : null}
                 {selected.state === "Escalated" ? (
                   <button className="btn" type="button" onClick={() => handleEscalation(selected.case_id)}>

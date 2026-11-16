@@ -130,6 +130,10 @@ async def test_gc02_critical_no_llm_values(orch):
     case = await ledger.get_case(db, case["case_id"])
     assert case["ladder_step"] == 3
     assert case["state"] == "Escalated"
+    case = await coord.log_call_outcome(
+        db, case["case_id"], "reached_going_now", "human:coordinator"
+    )
+    assert (case.get("evidence") or {}).get("call_outcome") == "reached_going_now"
     case = await coord.human_handle_escalation(db, case["case_id"], "human:coordinator")
     assert case["state"] == "Owned"
     assert (case.get("evidence") or {}).get("ladder_stopped") is True

@@ -142,9 +142,13 @@ class Coordinator:
         }
         if payload.get("case_id"):
             case_payload["case_id"] = payload["case_id"]
-        # Keep a display name for board/patient chrome (synthetic only)
+        # Keep display names for board/patient chrome (synthetic only)
         if patient.get("name"):
-            evidence0 = {"patient_display_name": str(patient["name"]).split("(")[0].strip()}
+            evidence0 = {
+                "patient_display_name": str(patient["name"]).split("(")[0].strip(),
+            }
+            if patient.get("name_ar"):
+                evidence0["patient_display_name_ar"] = str(patient["name_ar"]).strip()
             case_payload["evidence"] = evidence0
         case = await self.ledger.create_case(db, case_payload)
         case_id = case["case_id"]
@@ -281,13 +285,12 @@ class Coordinator:
         elif "BI-RADS" in (case.get("result_value") or ""):
             result_class = "mammo_urgent"
 
-        display_name = (
-            (case.get("evidence") or {}).get("patient_display_name")
-            or "Patient"
-        )
+        ev_names = case.get("evidence") or {}
+        display_name_en = ev_names.get("patient_display_name") or "Patient"
+        display_name_ar = ev_names.get("patient_display_name_ar") or display_name_en
         urgency_raw = case.get("urgency") or "URGENT"
         next_by_lang = {
-            "en": "confirm understanding and book a follow-up",
+            "en": "Confirm understanding and book a follow-up",
             "ar": "تأكيد الفهم وحجز متابعة",
         }
         urgency_by_lang = {
@@ -301,6 +304,7 @@ class Coordinator:
         by_lang: dict[str, Any] = {}
         primary_lang = case.get("language") or "en"
         for lang in ("en", "ar"):
+            display_name = display_name_ar if lang == "ar" else display_name_en
             res_raw = await self._delegate(
                 db,
                 case_id,

@@ -43,9 +43,12 @@ async def test_fatima_greeting_uses_first_name():
         case = await ledger.get_case(db, ids["gc01_fatima_hba1c"])
         assert case
         assert (case.get("evidence") or {}).get("patient_display_name") == "Fatima"
+        assert (case.get("evidence") or {}).get("patient_display_name_ar") == "فاطمة"
         msg = case["messages"][-1]
-        assert "Fatima" in (msg.get("text") or "")
+        assert "Fatima" in (msg.get("text") or "") or "فاطمة" in (msg.get("text") or "")
         assert msg.get("by_lang", {}).get("en", {}).get("text")
+        assert "Fatima" in (msg["by_lang"]["en"]["text"] or "")
+        assert "فاطمة" in (msg["by_lang"]["ar"]["text"] or "")
         assert "Patient" not in (msg["by_lang"]["en"]["text"] or "")
         # EN teach-back present with correct answers
         en_tb = msg["by_lang"]["en"]["teachback"]

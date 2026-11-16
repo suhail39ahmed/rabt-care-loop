@@ -566,6 +566,17 @@ class Coordinator:
         if current in {S.CLOSED, S.CLOSED_BY_HUMAN}:
             raise IllegalTransition(f"case already {current.value}")
 
+        # #50 — never freeze the critical ladder behind a two-person close request
+        if (
+            human
+            and not human.get("two_person_approved")
+            and case.get("urgency") == "CRITICAL"
+            and current is S.ESCALATED
+        ):
+            raise IllegalTransition(
+                "Handle escalation before requesting close on a critical escalated case"
+            )
+
         evidence = dict(case.get("evidence") or {})
         if human:
             # four_eyes_ok is ignored — two-person approval is the only override path

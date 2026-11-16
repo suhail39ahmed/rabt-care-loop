@@ -1,0 +1,27 @@
+# Checkov config for infra/terraform. Skips are justified below; everything else must pass or is tracked.
+framework:
+  - terraform
+skip-check:
+  # Customer-managed keys: platform-managed keys are accepted for the synthetic-data pilot;
+  # CMK needs a separate key lifecycle (tracked under #106).
+  - CKV2_AZURE_1   # Storage CMK
+  - CKV_AZURE_247  # Cognitive Services CMK
+  - CKV2_AZURE_22  # Cognitive Services CMK
+  # Key Vault keys/HSM: the vault only stores secrets.
+  - CKV_AZURE_112
+  # Storage queue logging: no queues are used.
+  - CKV_AZURE_33
+  # Geo-replication: ZRS by default; GRS is a variable (storage_replication_type).
+  - CKV_AZURE_206
+  # Search replicas >= 3 for SLA: cost choice for a pilot (search_replica_count variable).
+  - CKV_AZURE_208
+  - CKV_AZURE_209
+  # APIM gateway stays public by design (Render is outside Azure); backends are private.
+  - CKV_AZURE_174
+  # Shared Access Signature expiration on storage is configured via sas_policy; check misreports it.
+  - CKV2_AZURE_41
+  # Key Vault private endpoint is conditional (enable_private_networking).
+  - CKV2_AZURE_32
+  # Storage private endpoint is conditional (enable_private_networking).
+  - CKV2_AZURE_33
+soft-fail: false

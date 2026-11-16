@@ -82,7 +82,8 @@ async def run(req: dict[str, Any]) -> dict[str, Any]:
             "answer": answer,
             "citations": [{"id": c["id"], "path": c["path"]} for c in chunks],
             "hand_off_offered": True,
-            "ai_generated": True,
+            # Keyword extractive FAQ — not an LLM (#70).
+            "ai_generated": False,
         },
         "evidence_refs": [c["id"] for c in chunks],
     }

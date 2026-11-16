@@ -13,9 +13,37 @@
 | API health | https://rabt-api-9oig.onrender.com/healthz |
 | API docs | https://rabt-api-9oig.onrender.com/docs |
 | Demo video | https://youtu.be/Qe9OF5uIzyg |
+| Deck PDF | See issue #37 (export landing with submission pack) |
 | Repo | https://github.com/suhail39ahmed/rabt-care-loop |
 
 **Hosting:** Render free tier (Oregon). First request after idle can take ~20 s (cold start). SQLite reseeds on each API restart and is shared by all visitors.
+
+## Try it in 90 seconds
+
+No login. Guest reads are open. Board writes use the persona switcher (`X-Rabt-Persona`). If someone else changed the shared demo, click **Reset demo** on `/board`. First load after idle may take ~20 s.
+
+1. **Patient card (AR)** — open [Fatima’s result](https://rabt-web.onrender.com/patient/case-gc01-fatima): “not a diagnosis” banner + teach-back.
+2. **Same card (EN)** — [switch language](https://rabt-web.onrender.com/patient/case-gc01-fatima?lang=en).
+3. **Board** — open the [clinician board](https://rabt-web.onrender.com/board): switch to Dr Aisha, accept ownership / handle critical BP / request close with a second persona.
+4. **Admin KPIs** — open [admin](https://rabt-web.onrender.com/admin): false closures and critical recall on the synthetic seed.
+5. **API** — skim [OpenAPI docs](https://rabt-api-9oig.onrender.com/docs) (`/healthz`, `/demo`, `/cases/{id}`).
+
+| Real in this demo | Mocked / optional / off |
+|---|---|
+| FHIR-shaped Observation intake (local/SQLite) | Malaffi HIE and Sehatna patient app |
+| Deterministic triage, navigator, closure, HITL board | Azure OpenAI LLM rewrite (optional, **off**) |
+| Lexicon / no-diagnosis guardrails | Azure Content Safety (optional, **off**) |
+| Provenance + timeline kinds | MCP tool servers (prototype — **not** on the demo path) |
+
+CI on `main` runs **`uv run pytest -q`** (currently **75** collected tests in this tree, including golden cases). Demo video: https://youtu.be/Qe9OF5uIzyg.
+
+Loop overview (as-built):
+
+![As-built care loop](docs/assets/architecture-asbuilt.png)
+
+![Happy-path sequence (SC-01)](docs/assets/architecture-sequence-sc01.png)
+
+![HITL gates](docs/assets/diagram-hitl.png)
 
 ---
 

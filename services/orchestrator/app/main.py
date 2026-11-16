@@ -790,8 +790,46 @@ async def plans():
 @app.get("/insurer/agent-card")
 async def insurer_card():
     from app.insurer import agent_card
+    from app.insurer_client import insurer_url
 
-    return agent_card()
+    card = agent_card()
+    if insurer_url():
+        card["url"] = insurer_url()
+        card["authentication"] = "hmac-sha256 (X-Rabt-Agent, X-Rabt-Timestamp, X-Rabt-Signature)"
+    return card
+
+
+@app.get("/insurer/exchanges")
+async def insurer_exchanges():
+    """Recent A2A exchanges with the insurer agent (fields and outcomes only, no patient data)."""
+    from app.insurer_client import EXCHANGES, insurer_url
+
+    return {
+        "transport": "http" if insurer_url() else "in-process",
+        "insurer_url": insurer_url() or None,
+        "signed": bool(insurer_url()),
+        "exchanges": list(EXCHANGES)[:20],
+    }
+
+
+class TranslateIn(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+    target: Literal["en", "ar"] | None = None
+
+
+@app.post("/translate")
+async def translate_text(body: TranslateIn):
+    """Live EN<->AR translation: approved glossary first, then the small model (PII kept local)."""
+    from agents.translation import translate
+
+    return await translate(body.text, body.target)
+
+
+@app.get("/translate/glossary")
+async def translate_glossary():
+    from agents.translation import GLOSSARY
+
+    return {"phrases": [{"en": k, "ar": v} for k, v in GLOSSARY.items()]}
 
 
 class KbSuggestionIn(BaseModel):

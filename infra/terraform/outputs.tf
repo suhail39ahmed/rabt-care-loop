@@ -150,3 +150,8 @@ output "security_summary" {
     resource_lock             = var.enable_resource_lock
   }
 }
+
+output "insurer_url" {
+  description = "Demo insurer A2A agent: its page (/) and agent card (/.well-known/agent.json)."
+  value       = module.hosting.insurer_url
+}

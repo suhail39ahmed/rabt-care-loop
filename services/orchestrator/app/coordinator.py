@@ -71,6 +71,34 @@ class Coordinator:
             )
             raise
 
+    async def _ask_insurer(
+        self, db: aiosqlite.Connection, case_id: str, step: str, skill: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """A2A call to the insurer agent, scoped per step; the reply is validated untrusted data."""
+        from app.insurer_client import call_insurer
+
+        tool = "insurer_" + skill.replace("-", "_")
+        reply, record = await self._call_tool(db, case_id, step, tool, call_insurer, skill, payload, case=case_id)
+        verified = "signature verified" if record.get("signature_verified") else record["transport"]
+        dropped = f" · dropped {', '.join(record['dropped_fields'])}" if record.get("dropped_fields") else ""
+        await self.ledger.append_timeline(
+            db,
+            case_id,
+            kind="calculated",
+            label=f"A2A · insurer {skill}",
+            detail=f"{record['outcome']} · {verified} · {record.get('reason_code')}{dropped}",
+            actor="agent:insurer",
+        )
+        if record["outcome"] != "accepted":
+            await hitl.enqueue(
+                db,
+                case_id,
+                "a2a_insurer",
+                f"Insurer {skill} reply {record['outcome']}: check coverage by phone",
+                detail=str(record.get("error", ""))[:200],
+            )
+        return reply
+
     async def _delegate(self, db: aiosqlite.Connection, case_id: str, step: str, coro):
         """Run an agent step with MAX_STEPS + tool-scope bookkeeping."""
         try:
@@ -487,25 +515,12 @@ class Coordinator:
         elif current is S.REF_REJECTED:
             await self._apply(db, case_id, current, S.REFERRED, "agent:navigator", "re-routed", res.outputs)
         options = res.outputs.get("options") or []
-        from app.insurer import check_coverage
-
         consent = bool(case.get("consent_insurer_query", True))
-        coverage = check_coverage(
-            plan_id=str(case.get("plan_id") or "plan-b"),
-            provider_id=str((options[0] or {}).get("id") if options else "prov-1"),
-            consent=consent,
-        )
-        from app.insurer import payment_options
-
-        payment = (
-            payment_options(
-                plan_id=str(case.get("plan_id") or "plan-b"),
-                provider_id=str(options[0].get("id")),
-                consent=consent,
-            )
-            if options
-            else {}
-        )
+        plan_id = str(case.get("plan_id") or "plan-b")
+        first = str((options[0] or {}).get("id")) if options else "prov-1"
+        query = {"plan_id": plan_id, "provider_id": first, "consent_insurer_query": consent}
+        coverage = await self._ask_insurer(db, case_id, "navigate", "eligibility", query)
+        payment = await self._ask_insurer(db, case_id, "navigate", "payment-options", query) if options else {}
         evidence = dict(case.get("evidence") or {})
         evidence["coverage"] = coverage
         evidence["payment_options"] = payment
@@ -586,8 +601,6 @@ class Coordinator:
         """Move the reimbursement claim task forward (patient paperwork, staff records insurer decision)."""
         from agents.navigator.payment import advance_claim
 
-        from app.insurer import submit_claim
-
         case = await self.ledger.get_case(db, case_id)
         if not case:
             raise CaseNotFound(case_id)
@@ -597,12 +610,18 @@ class Coordinator:
             raise ValueError("no reimbursement claim on this case (booked option is cashless or self-pay)")
         updated = advance_claim(claim, status, actor_role=actor_role)
         if status == "submitted":
-            ack = submit_claim(
-                case_id=case_id,
-                plan_id=str(case.get("plan_id") or "plan-b"),
-                provider_id=str(claim.get("option_id")),
-                amount_aed=int(claim.get("amount_claimed_aed") or 0),
-                consent=bool(case.get("consent_insurer_query", True)),
+            ack = await self._ask_insurer(
+                db,
+                case_id,
+                "claims",
+                "claims",
+                {
+                    "case_id": case_id,
+                    "plan_id": str(case.get("plan_id") or "plan-b"),
+                    "provider_id": str(claim.get("option_id")),
+                    "amount_aed": int(claim.get("amount_claimed_aed") or 0),
+                    "consent_insurer_query": bool(case.get("consent_insurer_query", True)),
+                },
             )
             updated["insurer_ack"] = ack
         history = list(updated.get("history") or [])

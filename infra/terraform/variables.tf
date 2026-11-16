@@ -468,6 +468,12 @@ variable "llm_router_escalate_chars" {
   default     = 6000
 }
 
+variable "enable_insurer_demo" {
+  description = "Deploy the synthetic demo insurer as its own A2A agent (ca-<workload>-insurer-<env>), called over signed HTTP."
+  type        = bool
+  default     = true
+}
+
 variable "enable_kb_ingest_job" {
   description = "Create the Container Apps Job that indexes approved KB docs from blob storage into AI Search."
   type        = bool

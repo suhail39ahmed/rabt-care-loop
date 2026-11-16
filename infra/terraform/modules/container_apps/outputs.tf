@@ -47,3 +47,13 @@ output "ingest_job_name" {
   description = "KB ingestion job name (null when disabled)."
   value       = var.ingest_job == null ? null : azurerm_container_app_job.ingest[0].name
 }
+
+output "insurer_app_name" {
+  description = "Demo insurer A2A app name (null when disabled)."
+  value       = var.insurer == null ? null : azurerm_container_app.insurer[0].name
+}
+
+output "insurer_url" {
+  description = "Public HTTPS URL of the demo insurer agent (its page and agent card)."
+  value       = var.insurer == null ? null : "https://${azurerm_container_app.insurer[0].ingress[0].fqdn}"
+}

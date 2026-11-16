@@ -21,14 +21,17 @@ Start the API and web locally ([Quick start](#quick-start): `make api` and `make
 2. **Same card (EN)** — add `?lang=en`.
 3. **Board** — `/board`: switch to Dr Aisha, accept ownership / handle critical BP / request close with a second persona.
 4. **Admin KPIs** — `/admin`: false closures and critical recall on the synthetic seed.
-5. **API** — OpenAPI docs at `http://localhost:8000/docs` (`/healthz`, `/demo`, `/cases/{id}`).
+5. **Insurer agent** — `/insurer`: the A2A exchanges with the separate Demo Health Insurance agent (signed, schema-checked).
+6. **API** — OpenAPI docs at `http://localhost:8000/docs` (`/healthz`, `/demo`, `/cases/{id}`).
 
 | Real in this demo | Mocked / optional / off |
 |---|---|
 | FHIR-shaped Observation intake (local/SQLite) | Malaffi HIE and Sehatna patient app |
-| Deterministic triage, navigator, closure, HITL board | Azure OpenAI LLM rewrite (optional, **off**) |
-| Lexicon / no-diagnosis guardrails | Azure Content Safety (optional, **off**) |
-| Provenance + timeline kinds | MCP tool servers (prototype — **not** on the demo path) |
+| Deterministic triage, navigator, closure, HITL board | Azure OpenAI via the APIM AI gateway (wired; `AI_ENABLED` kill switch, **off** until switched on) |
+| Lexicon / no-diagnosis guardrails, PII scrubbing before any model call | Azure Content Safety + Prompt Shields (wired; used when the gateway is configured) |
+| Grounded answers from the approved KB (local BM25; Azure AI Search in Azure), clinician-approved learning loop | Demo Health Insurance is a **synthetic** payer |
+| Signed A2A with a separate insurer agent; strict reply validation | MCP tool servers (prototype — **not** on the demo path) |
+| Live EN↔AR translation (approved phrases; AI with placeholders when on), browser TTS | |
 
 CI runs on every pull request and on `main`: ruff, pytest (golden cases included), the seeded benchmark, pip-audit, gitleaks, npm audit, the web build, both Docker builds, Terraform checks (fmt, validate, `terraform test`, tflint, checkov) and a Playwright end-to-end story.
 
@@ -101,7 +104,8 @@ The **Coordinator** (`services/orchestrator/app/coordinator.py`) is the supervis
 | Escalation | `services/agents/escalation/` | Deterministic, **no LLM** | Critical ladder; patient SMS never contains values |
 | Patient Comms | `services/agents/comms/` | Approved templates; LLM optional | AR/EN message + teach-back |
 | Navigator | `services/agents/navigator/` | Deterministic scoring | Ranks providers with a payment path per option: cashless at network hospitals first, pay-and-claim reimbursement when the plan offers it, out-of-network excluded unless reimbursable or explicit self-pay |
-| Reassurance | `services/agents/reassurance/` | Local approved KB | Cited, non-diagnostic answers; red flags → human |
+| Reassurance | `services/agents/reassurance/`, `services/agents/rag/` | Approved KB (BM25 locally, Azure AI Search hybrid + semantic in Azure); strong model only for grounded, validated answers | Cited, non-diagnostic answers; red flags → human; gaps → KB suggestion for clinician approval |
+| Insurer (A2A) | `services/insurer_demo/`, `app/insurer_client.py` | Separate agent, signed HTTP | Eligibility, payment paths and claims; replies schema-checked, rejects go to a human |
 | E-consult | `services/agents/econsult/` | Deterministic packet | Referral / e-consult summary |
 | Closure Verifier | `services/agents/closure/` | Deterministic | Evidence gate before any closure |
 

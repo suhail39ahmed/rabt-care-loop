@@ -6,6 +6,7 @@ variable "names" {
     api_app     = string
     web_app     = string
     ingest_job  = optional(string)
+    insurer_app = optional(string)
   })
 }
 
@@ -124,4 +125,23 @@ variable "job_bootstrap_image" {
   description = "Placeholder image for the ingestion job until the deploy workflow sets the real one (runs and exits)."
   type        = string
   default     = "mcr.microsoft.com/k8se/quickstart-jobs:latest"
+}
+
+variable "insurer" {
+  description = <<-EOT
+    Optional demo insurer A2A agent (synthetic payer). Runs the API image with RABT_ROLE=insurer;
+    requests and replies are HMAC-signed with var.a2a_shared_secret. null = in-process insurer.
+  EOT
+  type = object({
+    cpu    = optional(number, 0.25)
+    memory = optional(string, "0.5Gi")
+  })
+  default = null
+}
+
+variable "a2a_shared_secret" {
+  description = "Shared HMAC secret between the API and the demo insurer agent (required when var.insurer is set)."
+  type        = string
+  default     = ""
+  sensitive   = true
 }

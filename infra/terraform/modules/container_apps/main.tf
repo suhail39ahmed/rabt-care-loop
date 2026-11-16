@@ -132,6 +132,14 @@ resource "azurerm_container_app" "api" {
     }
   }
 
+  dynamic "secret" {
+    for_each = var.insurer == null ? [] : ["a2a-shared-secret"]
+    content {
+      name  = secret.value
+      value = var.a2a_shared_secret
+    }
+  }
+
   ingress {
     external_enabled = true
     target_port      = 80
@@ -161,6 +169,22 @@ resource "azurerm_container_app" "api" {
       env {
         name  = "CORS_ORIGINS"
         value = "https://${azurerm_container_app.web.ingress[0].fqdn}"
+      }
+
+      dynamic "env" {
+        for_each = var.insurer == null ? {} : { INSURER_A2A_URL = "https://${azurerm_container_app.insurer[0].ingress[0].fqdn}" }
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.insurer == null ? [] : ["A2A_SHARED_SECRET"]
+        content {
+          name        = env.value
+          secret_name = "a2a-shared-secret"
+        }
       }
 
       dynamic "env" {
@@ -260,4 +284,76 @@ resource "azurerm_container_app_job" "ingest" {
   }
 
   depends_on = [azurerm_role_assignment.ingest_acr_pull]
+}
+
+# ---------------------------------------------------------------------------
+# Demo insurer A2A agent (synthetic payer, not a real insurer). Same image, RABT_ROLE=insurer.
+# Every request and reply is HMAC-signed; the API validates replies against a strict schema.
+# ---------------------------------------------------------------------------
+resource "azurerm_container_app" "insurer" {
+  count                        = var.insurer == null ? 0 : 1
+  name                         = var.names.insurer_app
+  container_app_environment_id = azurerm_container_app_environment.this.id
+  resource_group_name          = var.resource_group_name
+  revision_mode                = "Single"
+  workload_profile_name        = var.infrastructure_subnet_id == null ? null : "Consumption"
+  tags                         = merge(var.tags, { component = "insurer-demo" })
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [var.app_identity_id]
+  }
+
+  registry {
+    server   = azurerm_container_registry.this.login_server
+    identity = var.app_identity_id
+  }
+
+  secret {
+    name  = "a2a-shared-secret"
+    value = var.a2a_shared_secret
+  }
+
+  ingress {
+    external_enabled = true
+    target_port      = 80
+    transport        = "auto"
+
+    traffic_weight {
+      latest_revision = true
+      percentage      = 100
+    }
+  }
+
+  template {
+    min_replicas = 0
+    max_replicas = 1
+
+    container {
+      name   = "insurer"
+      image  = var.bootstrap_image
+      cpu    = var.insurer.cpu
+      memory = var.insurer.memory
+
+      env {
+        name  = "RABT_ROLE"
+        value = "insurer"
+      }
+
+      env {
+        name        = "A2A_SHARED_SECRET"
+        secret_name = "a2a-shared-secret"
+      }
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [template[0].container[0].image, ingress[0].target_port]
+    precondition {
+      condition     = var.names.insurer_app != null && length(var.a2a_shared_secret) >= 32
+      error_message = "The insurer app needs names.insurer_app and an a2a_shared_secret of at least 32 characters."
+    }
+  }
+
+  depends_on = [azurerm_role_assignment.acr_pull]
 }

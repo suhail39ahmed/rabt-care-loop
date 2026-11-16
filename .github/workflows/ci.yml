@@ -65,6 +65,43 @@ jobs:
       - name: Build web image
         run: docker build -f apps/web/Dockerfile apps/web
 
+  terraform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+      - name: terraform fmt
+        run: terraform fmt -check -recursive
+      - name: terraform init (no backend)
+        run: terraform init -backend=false -input=false
+      - name: terraform validate
+        run: terraform validate
+      - name: terraform test (mocked providers, offline)
+        run: terraform test
+      - uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.66.0
+      - name: tflint
+        run: |
+          tflint --init
+          tflint --format compact
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: checkov (soft-fail)
+        run: |
+          pip install --quiet checkov
+          checkov -d . --config-file .checkov.yaml --compact --quiet --soft-fail
+
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15

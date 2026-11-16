@@ -3,7 +3,22 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Rabt — no result left behind",
-  description: "Sehatna-style care-loop companion for screening results (synthetic demo)",
+  description:
+    "Care-loop companion for screening follow-up, designed to sit alongside a patient app such as Sehatna. Synthetic demo only.",
+  openGraph: {
+    title: "Rabt — no result left behind",
+    description: "Synthetic care-loop demo for screening follow-up in Abu Dhabi-style programmes.",
+    url: "https://rabt-web.onrender.com",
+    siteName: "Rabt",
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "Rabt" }],
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Rabt — no result left behind",
+    description: "Synthetic care-loop demo. No result left behind.",
+    images: ["/og.png"],
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

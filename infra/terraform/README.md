@@ -1,7 +1,7 @@
 # Rabt – Azure infrastructure (Terraform)
 
 One Terraform stack provisions everything Rabt needs on Azure: the app hosting (Container Apps + ACR), the AI services (Azure OpenAI, AI Search, Content Safety, optional Redis semantic cache), the APIM AI gateway in front of them, and the security baseline.
-GitHub Actions runs it (`.github/workflows/infra.yml`) and deploys the app images (`.github/workflows/deploy.yml`). The step-by-step first-time setup is in [`docs/deployment.md`](../../docs/deployment.md).
+GitHub Actions runs it (`.github/workflows/infra.yml`) and deploys the app images (`.github/workflows/deploy.yml`). See [First-time bootstrap](#first-time-bootstrap) for the few things created by hand.
 
 ```
 Browser ──HTTPS──► ca-rabt-web-pilot (Next.js) ──HTTPS──► ca-rabt-api-pilot (FastAPI)
@@ -110,9 +110,35 @@ APIM, Key Vault, Storage, AI Search, Azure OpenAI and ACR names are global. If o
 | App (user MI) | AcrPull | container registry |
 | Deployer (`grant_deployer_data_roles`) | Key Vault Secrets Officer, Search Index Data Contributor, Search Service Contributor, Storage Blob Data Contributor, Cognitive Services OpenAI User, AcrPush | for setup, image pushes and the ingestion script |
 
+## First-time bootstrap
+
+Three things exist outside this stack, because Terraform needs them before it can run:
+
+1. **State storage**: `rg-rabt-tfstate-uaen`, storage account `strabttfstateuaen` (Standard_ZRS, TLS 1.2, no public blob access, shared keys off) and container `tfstate`. Commands are in `backend.hcl.example`.
+2. **A GitHub OIDC identity**: an Entra app registration with two federated credentials for this repo, `pull_request` (plan) and `environment:pilot` (apply / deploy).
+   - On the subscription it needs Contributor and Role Based Access Control Administrator, because the stack creates role assignments.
+   - On the state account it needs Storage Blob Data Contributor.
+   - No client secret.
+3. **GitHub settings**:
+   - An environment named `pilot` with required reviewers.
+   - Repository variables:
+
+| Variable | Example | Used by |
+|---|---|---|
+| `AZURE_CLIENT_ID` | app (client) ID of the OIDC app | infra, deploy |
+| `AZURE_TENANT_ID` | Entra tenant ID | infra, deploy |
+| `AZURE_SUBSCRIPTION_ID` | subscription ID | infra, deploy |
+| `APIM_PUBLISHER_EMAIL` | `you@example.com` | infra |
+| `BUDGET_CONTACT_EMAILS` | `["you@example.com"]` (JSON list) | infra |
+| `DEPLOY_ENABLED` | `true`, after the first successful apply | deploy |
+| `TF_STATE_RESOURCE_GROUP` / `TF_STATE_STORAGE_ACCOUNT` / `TF_STATE_CONTAINER` / `TF_STATE_KEY` | optional; default to the names above | infra |
+| `AZURE_RESOURCE_GROUP` / `ACR_NAME` / `API_APP_NAME` / `WEB_APP_NAME` | optional; default to the pilot names | deploy |
+
+Until the variables are set, both workflows skip their Azure jobs and stay green.
+
 ## Remote state
 
-State lives in an Azure Storage account that you create once by hand. It uses Entra ID auth (`use_azuread_auth = true`), and shared keys are disabled on the account. Commands are in `backend.hcl.example` and `docs/deployment.md`.
+State lives in an Azure Storage account that you create once by hand. It uses Entra ID auth (`use_azuread_auth = true`), and shared keys are disabled on the account. Commands are in `backend.hcl.example`.
 
 ```bash
 cp backend.hcl.example backend.hcl            # values already match the naming convention

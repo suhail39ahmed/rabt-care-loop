@@ -1,5 +1,5 @@
 # Copy to terraform.tfvars (git-ignored, loaded automatically) for local runs.
-# In GitHub Actions the same values come from repository variables (see docs/deployment.md).
+# In GitHub Actions the same values come from repository variables (see README.md, First-time bootstrap).
 # Never put keys or secrets in this file.
 
 subscription_id = "00000000-0000-0000-0000-000000000000"

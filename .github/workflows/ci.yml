@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev
-      - run: uv run ruff check services tests mcp-servers benchmark
+      - run: uv run ruff check services tests mcp-servers benchmark scripts
       - run: uv run pytest -q
         env:
           PYTHONPATH: services/orchestrator:services:.

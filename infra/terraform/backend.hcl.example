@@ -1,5 +1,5 @@
 # Copy to backend.hcl (git-ignored) and run:  terraform init -backend-config=backend.hcl
-# The state storage is created once, by hand, before the first init (see docs/deployment.md):
+# The state storage is created once, by hand, before the first init (see README.md, First-time bootstrap):
 #   az group create -n rg-rabt-tfstate-uaen -l uaenorth
 #   az storage account create -n strabttfstateuaen -g rg-rabt-tfstate-uaen -l uaenorth --sku Standard_ZRS \
 #     --min-tls-version TLS1_2 --allow-blob-public-access false --allow-shared-key-access false

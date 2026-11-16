@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Human-approved learning loop helper (#96): move pending → kb with version stamp."""
 from __future__ import annotations
-import argparse, shutil
+
+import argparse
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[1]
 PENDING = ROOT / "data" / "kb" / "_pending"
@@ -17,7 +18,7 @@ def main() -> int:
     src = PENDING / args.filename
     if not src.exists():
         raise SystemExit(f"missing {src}")
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    stamp = datetime.now(UTC).strftime("%Y%m%d")
     dst = KB / f"{src.stem}.v{stamp}{src.suffix}"
     text = src.read_text(encoding="utf-8")
     header = f"<!-- approved_by: {args.reviewer} at {stamp} -->\n"

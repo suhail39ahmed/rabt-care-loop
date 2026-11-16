@@ -40,8 +40,8 @@ async def main() -> int:
     ap.add_argument("--n", type=int, default=50)
     ap.add_argument("--concurrency", type=int, default=5)
     args = ap.parse_args()
-    if "onrender.com" in args.base_url:
-        raise SystemExit("Refusing to load-test the shared live demo.")
+    if "azurecontainerapps.io" in args.base_url and os.environ.get("LOAD_ALLOW_REMOTE") != "1":
+        raise SystemExit("Refusing to load-test the hosted demo (set LOAD_ALLOW_REMOTE=1 to override).")
     secret = os.environ.get("RABT_INGEST_SECRET", "")
     latencies: list[float] = []
     sem = asyncio.Semaphore(args.concurrency)

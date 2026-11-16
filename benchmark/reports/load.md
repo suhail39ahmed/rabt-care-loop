@@ -1,6 +1,6 @@
 # Load test results (#66)
 
-**Do not run against the shared live Render demo.**
+**Do not run against the hosted demo** (the script refuses Container Apps URLs unless `LOAD_ALLOW_REMOTE=1`).
 
 ## Command
 

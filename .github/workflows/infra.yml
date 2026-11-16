@@ -1,0 +1,151 @@
+name: infra
+
+# Terraform for the Azure stack (infra/terraform), authenticated with GitHub OIDC (no stored cloud secrets).
+#   pull_request -> plan (posted to the job summary)
+#   push to main / manual dispatch -> plan + apply in the `pilot` environment (protect it with required reviewers)
+# Every Azure job is skipped until the repository variables below are set, so main stays green before Azure exists.
+#   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, APIM_PUBLISHER_EMAIL, BUDGET_CONTACT_EMAILS (JSON list)
+#   optional: TF_STATE_RESOURCE_GROUP, TF_STATE_STORAGE_ACCOUNT, TF_STATE_CONTAINER, TF_STATE_KEY
+
+on:
+  pull_request:
+    paths:
+      - "infra/terraform/**"
+      - ".github/workflows/infra.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infra/terraform/**"
+      - ".github/workflows/infra.yml"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "plan only, or plan and apply"
+        type: choice
+        options: [plan, apply]
+        default: plan
+
+permissions:
+  contents: read
+
+concurrency:
+  group: infra-pilot
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: "1.9.8"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  ARM_USE_OIDC: "true"
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  TF_VAR_apim_publisher_email: ${{ vars.APIM_PUBLISHER_EMAIL }}
+  TF_VAR_budget_contact_emails: ${{ vars.BUDGET_CONTACT_EMAILS }}
+  STATE_RG: ${{ vars.TF_STATE_RESOURCE_GROUP || 'rg-rabt-tfstate-uaen' }}
+  STATE_SA: ${{ vars.TF_STATE_STORAGE_ACCOUNT || 'strabttfstateuaen' }}
+  STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER || 'tfstate' }}
+  STATE_KEY: ${{ vars.TF_STATE_KEY || 'rabt/pilot.tfstate' }}
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        env:
+          CLIENT: ${{ vars.AZURE_CLIENT_ID }}
+          TENANT: ${{ vars.AZURE_TENANT_ID }}
+          SUB: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          EMAIL: ${{ vars.APIM_PUBLISHER_EMAIL }}
+          EMAILS: ${{ vars.BUDGET_CONTACT_EMAILS }}
+        run: |
+          if [ -n "$CLIENT" ] && [ -n "$TENANT" ] && [ -n "$SUB" ] && [ -n "$EMAIL" ] && [ -n "$EMAILS" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Azure not configured::Set AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, APIM_PUBLISHER_EMAIL and BUDGET_CONTACT_EMAILS repository variables to enable Terraform plan/apply."
+          fi
+
+  plan:
+    needs: gate
+    if: needs.gate.outputs.configured == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: terraform init (remote state)
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=$STATE_RG" \
+            -backend-config="storage_account_name=$STATE_SA" \
+            -backend-config="container_name=$STATE_CONTAINER" \
+            -backend-config="key=$STATE_KEY" \
+            -backend-config="use_azuread_auth=true"
+      - name: terraform plan
+        run: terraform plan -lock=false -var-file=environments/pilot.tfvars -out tfplan -no-color
+      - name: Plan summary
+        if: always()
+        run: |
+          {
+            echo "### Terraform plan (pilot)"
+            echo '```'
+            terraform show -no-color tfplan 2>/dev/null | grep -E '^(Plan:|No changes|  # )' | head -200 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  apply:
+    needs: gate
+    if: needs.gate.outputs.configured == 'true' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # First apply creates APIM (Developer tier takes 30-90 minutes).
+    timeout-minutes: 150
+    environment: pilot
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: terraform init (remote state)
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=$STATE_RG" \
+            -backend-config="storage_account_name=$STATE_SA" \
+            -backend-config="container_name=$STATE_CONTAINER" \
+            -backend-config="key=$STATE_KEY" \
+            -backend-config="use_azuread_auth=true"
+      - name: terraform plan
+        run: terraform plan -lock-timeout=10m -var-file=environments/pilot.tfvars -out tfplan -no-color
+      - name: terraform apply
+        if: github.event_name == 'push' || inputs.action == 'apply'
+        run: terraform apply -lock-timeout=10m -auto-approve tfplan
+      - name: Outputs summary
+        if: github.event_name == 'push' || inputs.action == 'apply'
+        run: |
+          {
+            echo "### Rabt pilot on Azure"
+            echo "- Resource group: \`$(terraform output -raw resource_group_name)\`"
+            echo "- APIM gateway: $(terraform output -raw apim_gateway_url)"
+            echo "- API: $(terraform output -raw api_url)"
+            echo "- Web: $(terraform output -raw web_url)"
+            echo "- Registry: \`$(terraform output -raw acr_login_server)\`"
+          } >> "$GITHUB_STEP_SUMMARY"

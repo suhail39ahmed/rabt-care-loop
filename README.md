@@ -9,24 +9,19 @@
 
 | Link | URL |
 |---|---|
-| Live web | https://rabt-web.onrender.com |
-| API health | https://rabt-api-9oig.onrender.com/healthz |
-| API docs | https://rabt-api-9oig.onrender.com/docs |
 | Demo video | https://youtu.be/Qe9OF5uIzyg |
-| Deck PDF | [docs/deck-outline.md](docs/deck-outline.md) + form text [docs/hack2skill-form.md](docs/hack2skill-form.md) |
 | Repo | https://github.com/suhail39ahmed/rabt-care-loop |
-
-**Hosting:** Render free tier (Oregon). First request after idle can take ~20 s (cold start). SQLite reseeds on each API restart and is shared by all visitors.
+| Azure deployment | Terraform modules in [`infra/terraform`](infra/terraform) + GitHub Actions ([Deploy / hosting](#deploy--hosting)) |
 
 ## Try it in 90 seconds
 
-No login. Guest reads are open. Board writes use the persona switcher (`X-Rabt-Persona`). If someone else changed the shared demo, click **Reset demo** on `/board`. First load after idle may take ~20 s.
+Start the API and web locally ([Quick start](#quick-start): `make api` and `make web`, or `.\scripts\dev-api.ps1` / `.\scripts\dev-web.ps1`), or open the Azure web URL from the latest **deploy** workflow run. No login. Guest reads are open. Board writes use the persona switcher (`X-Rabt-Persona`). **Reset demo** on `/board` restores the seed.
 
-1. **Patient card (AR)** — open [Fatima’s result](https://rabt-web.onrender.com/patient/case-gc01-fatima): “not a diagnosis” banner + teach-back.
-2. **Same card (EN)** — [switch language](https://rabt-web.onrender.com/patient/case-gc01-fatima?lang=en).
-3. **Board** — open the [clinician board](https://rabt-web.onrender.com/board): switch to Dr Aisha, accept ownership / handle critical BP / request close with a second persona.
-4. **Admin KPIs** — open [admin](https://rabt-web.onrender.com/admin): false closures and critical recall on the synthetic seed.
-5. **API** — skim [OpenAPI docs](https://rabt-api-9oig.onrender.com/docs) (`/healthz`, `/demo`, `/cases/{id}`).
+1. **Patient card (AR)** — open Fatima’s result at `http://localhost:3000/patient/case-gc01-fatima`: “not a diagnosis” banner + teach-back.
+2. **Same card (EN)** — add `?lang=en`.
+3. **Board** — `/board`: switch to Dr Aisha, accept ownership / handle critical BP / request close with a second persona.
+4. **Admin KPIs** — `/admin`: false closures and critical recall on the synthetic seed.
+5. **API** — OpenAPI docs at `http://localhost:8000/docs` (`/healthz`, `/demo`, `/cases/{id}`).
 
 | Real in this demo | Mocked / optional / off |
 |---|---|
@@ -35,7 +30,7 @@ No login. Guest reads are open. Board writes use the persona switcher (`X-Rabt-P
 | Lexicon / no-diagnosis guardrails | Azure Content Safety (optional, **off**) |
 | Provenance + timeline kinds | MCP tool servers (prototype — **not** on the demo path) |
 
-CI on `main` runs **`uv run pytest -q`** (currently **75** collected tests in this tree, including golden cases). Demo video: https://youtu.be/Qe9OF5uIzyg.
+CI runs on every pull request and on `main`: ruff, pytest (golden cases included), the seeded benchmark, pip-audit, gitleaks, npm audit, the web build, both Docker builds, Terraform checks (fmt, validate, `terraform test`, tflint, checkov) and a Playwright end-to-end story.
 
 Loop overview (as-built):
 
@@ -65,7 +60,7 @@ Rabt is an ownership and navigation layer that sits on top of FHIR-style data. E
 2. is handed to a named owner through an **accept/decline ownership handshake**, or goes straight to a **critical escalation queue**
 3. is explained to the patient in **Arabic or English** using approved templates, with a "not a diagnosis" banner
 4. confirms understanding with **teach-back** questions; two failures trigger a human callback
-5. offers **in-network** follow-up options only, ranked by a deterministic navigator
+5. offers follow-up options ranked by a deterministic navigator, each with a **payment path**: cashless at a network hospital first, pay-and-claim reimbursement (with a tracked claim) when the plan covers it, and out-of-network only when reimbursable or explicitly self-pay
 6. **closes only with evidence** (attended encounter + outcome) or through a recorded human decision
 
 Each timeline entry is labelled **fact**, **calculated** or **AI**, so reviewers can see what produced it.
@@ -85,7 +80,7 @@ flowchart LR
   O --> C[Patient comms AR/EN<br/>template-first]
   C --> TB{Teach-back}
   TB -->|fails twice| CB[Human callback]
-  TB -->|passes| N[In-network navigator]
+  TB -->|passes| N[Navigator<br/>cashless first, claims tracked]
   N --> B[Booked] --> A[Attended]
   A --> V{Closure verifier}
   V -->|evidence| CL[Closed]
@@ -110,7 +105,7 @@ The **Coordinator** (`services/orchestrator/app/coordinator.py`) is the supervis
 | E-consult | `services/agents/econsult/` | Deterministic packet | Referral / e-consult summary |
 | Closure Verifier | `services/agents/closure/` | Deterministic | Evidence gate before any closure |
 
-**Where the LLM is (and isn't).** Triage, escalation, navigation scoring and closure never use an LLM. The Comms agent can optionally rewrite an approved template through Microsoft Agent Framework + Azure OpenAI when `AZURE_OPENAI_ENDPOINT` is set. The output must pass the no-diagnosis lexicon and Content Safety, otherwise the approved template is sent unchanged. **The local demo runs with templates only and needs no cloud account.**
+**Where the LLM is (and isn't).** Triage, escalation, navigation scoring and closure never use an LLM. The Comms agent can optionally rewrite an approved template through a provider-agnostic LLM client (on Azure: Azure OpenAI behind the APIM AI gateway) when `AI_ENABLED=true` and an LLM is configured. The output must pass the no-diagnosis lexicon and Content Safety, otherwise the approved template is sent unchanged. **The local demo runs with templates only and needs no cloud account.**
 
 ## Human-in-the-loop gates
 
@@ -141,7 +136,7 @@ Results measured locally with `pytest` / `make golden` / `make bench` (Python 3.
 
 | Suite | Result |
 |---|---|
-| All tests | **57 passed** locally (`uv run pytest -q`; CI runs the same suite) |
+| All tests | Pass locally and in CI (`uv run pytest -q`) |
 | Golden cases | **10/10** — see [benchmark/reports/golden_results.md](benchmark/reports/golden_results.md) |
 | Safety tests | No-diagnosis lexicon (EN/AR), scrub_pii, grounded_numbers, tool scopes, red flags |
 | State machine | Happy path, illegal transitions, closure needs evidence, human-only closure, property-based random walk |
@@ -160,16 +155,16 @@ All benchmark numbers are **simulated on synthetic data**, not real-world outcom
 
 | Layer | Used today | Target / pilot path |
 |---|---|---|
-| API / orchestration | Python 3.12, FastAPI, Pydantic v2, own state machine | Same, on Azure Container Apps |
+| API / orchestration | Python 3.12, FastAPI, Pydantic v2, own state machine | Same, on Azure Container Apps (Terraform module ready) |
 | Case ledger | SQLite (aiosqlite) | PostgreSQL Flexible Server |
-| Web | Next.js 16, React 19, TypeScript; Arabic RTL | Azure Static Web Apps |
+| Web | Next.js 16, React 19, TypeScript; Arabic RTL | Azure Container Apps |
 | Rules / templates / KB | YAML rules, YAML AR/EN templates, Markdown KB | Clinician-approved versions |
-| LLM (optional) | Microsoft Agent Framework + Azure OpenAI (off by default) | Azure AI Foundry |
+| LLM (optional) | Provider-agnostic client, AI kill switch (off by default) | Azure OpenAI via APIM AI gateway (token limits, failover, no body logging) |
 | Safety | Lexicon always on; Azure AI Content Safety optional (off in live demo) | See `/healthz` flags |
 | Tools | MCP Python SDK server stubs | Scoped MCP tools over AHDS FHIR |
 | Local mocks | Docker Compose: HAPI FHIR R4, PostgreSQL, Mailpit, Jaeger | Azure Health Data Services, ACS, App Insights |
 | Tests / CI | pytest, pytest-asyncio, Hypothesis; GitHub Actions | + lint, web build, security scans |
-| Packaging | uv (`uv.lock`), npm | azd (`azure.yaml`, `infra/` scaffold) |
+| Packaging / IaC | uv (`uv.lock`), npm, Docker | Terraform modules (`infra/terraform`), GitHub Actions with OIDC (`infra.yml`, `deploy.yml`) |
 
 ## Repository structure
 
@@ -188,8 +183,9 @@ All benchmark numbers are **simulated on synthetic data**, not real-world outcom
 ├── benchmark/                   # golden_cases/, run_bench.py, config/, reports/
 ├── tests/golden/                # golden case tests
 ├── tests/safety/                # guardrail tests
-├── docs/                        # architecture, responsible AI, data sources, assumptions, storyboard, assets
-├── infra/main.bicep, azure.yaml # Azure scaffold (pilot path)
+├── docs/                        # architecture, HITL playbook, responsible AI, threat model, pilot plan, assets
+├── infra/terraform/             # Azure IaC: thin root + modules/ (network, apim, openai, search, container_apps, ...)
+├── .github/workflows/           # ci.yml, infra.yml (plan / apply), deploy.yml (images → Container Apps)
 ├── docker-compose.yml           # optional local mocks
 ├── scripts/dev-api.ps1, dev-web.ps1
 └── Makefile                     # api | web | test | up
@@ -237,16 +233,16 @@ The API rebuilds a fresh demo database (`data/rabt.db`) on every start, so guest
 
 ## Demo walkthrough
 
-Open https://rabt-web.onrender.com (or http://localhost:3000). Guest mode — no login. Writes need the board persona header (`X-Rabt-Persona`).
+Open http://localhost:3000 (or the Azure web URL). Guest mode — no login. Writes need the board persona header (`X-Rabt-Persona`).
 
-1. **Fatima, patient (Arabic)** → patient card: RTL result with “not a diagnosis” → answer every teach-back question → book an in-network option.
+1. **Fatima, patient (Arabic)** → patient card: RTL result with “not a diagnosis” → answer every teach-back question → book the cashless network option (or a pay-and-claim option to see the claim tracker).
 2. **Dr Aisha** → `/board`: accept ownership of seeded `case-gc03-owner` (state `AwaitingOwner`).
 3. **Coordinator Sara** → `/board`: critical BP in the escalation queue (SMS has no values). Use **Advance +15m** to move the ladder, then **Handle escalation**.
 4. **Evidence closure** → on a booked case: **Mark attended** (shows **Attended — outcome needed**) → **Record outcome** → closes with evidence.
 5. **Two-person close** → on a case without evidence: **Request close** as persona A → switch persona → Approve twice with distinct non-requester personas → `ClosedByHuman`.
 6. **KPIs** → `/admin`: false closures and critical recall on the synthetic seed.
 
-API docs: https://rabt-api-9oig.onrender.com/docs
+API docs: http://localhost:8000/docs
 
 ## API endpoints
 
@@ -280,7 +276,7 @@ Writes require `X-Rabt-Persona` (except ingest/webhook, which need `X-Rabt-Inges
 
 ## Responsible AI
 
-- **No diagnosis:** a lexicon in English and Arabic blocks diagnostic claims; Azure AI Content Safety is optional (off in the live demo — check `GET /healthz`); every patient card carries a banner.
+- **No diagnosis:** a lexicon in English and Arabic blocks diagnostic claims; Azure AI Content Safety is optional (off unless configured — check `GET /healthz`); every patient card carries a banner.
 - **Threat model:** [docs/threat-model.md](docs/threat-model.md) (STRIDE → code controls).
 - **Pilot plan:** [docs/pilot-plan.md](docs/pilot-plan.md). Load test script: `scripts/load_test.py` (local only).
 - **Deterministic safety path:** triage, escalation, navigation scoring and closure never use an LLM.
@@ -300,26 +296,28 @@ Details: [docs/responsible-ai.md](docs/responsible-ai.md) · [docs/assumptions-l
 
 ## Deploy / hosting
 
-- **Live today:** Render free web services — [rabt-web](https://rabt-web.onrender.com) + [rabt-api](https://rabt-api-9oig.onrender.com). See `render.yaml`.
+- **Azure, provisioned by Terraform:** [`infra/terraform`](infra/terraform) has a thin root plus modules for the network, APIM AI gateway, Azure OpenAI, AI Search, Content Safety, Key Vault, storage, monitoring, governance and Container Apps. State lives in an Azure Storage account. Names follow `<type>-rabt-<env>-<region>` (for example `rg-rabt-pilot-uaen`, `apim-rabt-pilot-uaen`).
+- **GitHub Actions, OIDC only (no stored cloud secrets):**
+  - `infra.yml`: `terraform plan` on pull requests that touch `infra/terraform`; `apply` on `main` or manual dispatch, behind the `pilot` environment approval.
+  - `deploy.yml`: builds the API and web images, pushes them to ACR and rolls them out to Container Apps, behind the same environment approval.
+  - Both workflows skip cleanly until the Azure repository variables are set.
 - **Docker:** `services/orchestrator/Dockerfile` and `apps/web/Dockerfile` (bind `0.0.0.0:$PORT`).
-- **Azure (pilot path):** `infra/main.bicep` + `azure.yaml` scaffold for Container Apps later.
-- Local: `make api` / `make web`, or `docker compose up`.
+- **Local:** `make api` / `make web`, or `docker compose up`.
 
 ## Limitations
 
 - **Demo auth only:** persona header + ingest secret — not Entra ID / UAE PASS yet ([docs/responsible-ai.md](docs/responsible-ai.md)).
 - **MCP servers:** importable (`mcp>=1.1,<2`) and smoke-tested; not the live tool bus for the guest demo.
-- **Ledger:** SQLite, single replica, ephemeral on free Render; reseeds on restart.
-- **Deck PDF** link in Hack2Skill may still need a final export if the form requires a file upload.
+- **Ledger:** SQLite, single replica, ephemeral in the container; reseeds on restart (PostgreSQL is the pilot path).
 
 ## Done vs next
 
-**Shipped:** FHIR BP shapes, two-person close, outcome evidence, board approvals, ladder tick + demo clock, real KPIs, golden 10/10, seeded benchmark, Render deploy, MCP pin, guardrail wiring, demo auth, CI jobs.
+**Shipped:** FHIR BP shapes, two-person close, outcome evidence, board approvals, ladder tick + demo clock, real KPIs, golden 10/10, seeded benchmark, Azure IaC (Terraform modules) + GitHub Actions deploy, navigator payment paths with claim tracking, MCP pin, guardrail wiring, demo auth, CI jobs.
 
 | Next (pilot) | Description |
 |---|---|
 | Data | Azure Health Data Services (FHIR R4) + Event Grid / Service Bus; Synthea cohort |
-| AI | Optional Azure OpenAI rewrite for comms only; lexicon always on; Content Safety optional (see [docs/submission-claims.md](docs/submission-claims.md)) |
+| AI | Optional Azure OpenAI rewrite for comms only; lexicon always on; Content Safety optional (see [docs/responsible-ai.md](docs/responsible-ai.md)) |
 | Identity | Entra ID / UAE PASS |
 | Pilot site | Malaffi + Sehatna FHIR integration; clinician / DoH sign-off |
 

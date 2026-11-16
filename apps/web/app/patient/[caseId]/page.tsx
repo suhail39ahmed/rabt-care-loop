@@ -266,7 +266,7 @@ export default function PatientCasePage() {
             type="button"
             disabled={
               busy ||
-              !latestMsg.teachback.every((_, i) => Boolean(answers[i]))
+              !(viewMsg?.teachback || []).every((_, i) => Boolean(answers[i]))
             }
             onClick={() =>
               run(async () => {

@@ -121,28 +121,32 @@ class Coordinator:
         if obs.get("systolic") is not None or obs.get("diastolic") is not None:
             bp_display = f"{obs.get('systolic', '—')}/{obs.get('diastolic', '—')}"
 
-        case = await self.ledger.create_case(
-            db,
-            {
-                "patient_id": payload["patient_id"],
-                "language": patient.get("language", "en"),
-                "result_code": ((obs.get("code") or {}).get("coding") or [{}])[0].get("code"),
-                "result_display": ((obs.get("code") or {}).get("coding") or [{}])[0].get(
-                    "display", obs.get("code", {}).get("text", "Result")
-                ),
-                "result_value": str(
-                    bp_display
-                    or (obs.get("valueQuantity") or {}).get("value")
-                    or obs.get("valueString")
-                    or (obs.get("valueCodeableConcept") or {}).get("text")
-                    or ""
-                ),
-                "result_unit": (obs.get("valueQuantity") or {}).get("unit"),
-                "plan_id": plan_id,
-                "plan_name": plan["name"],
-                "consent_messaging": payload.get("consent_messaging", True),
-            },
-        )
+        case_payload = {
+            "patient_id": payload["patient_id"],
+            "language": patient.get("language", "en"),
+            "result_code": ((obs.get("code") or {}).get("coding") or [{}])[0].get("code"),
+            "result_display": ((obs.get("code") or {}).get("coding") or [{}])[0].get(
+                "display", obs.get("code", {}).get("text", "Result")
+            ),
+            "result_value": str(
+                bp_display
+                or (obs.get("valueQuantity") or {}).get("value")
+                or obs.get("valueString")
+                or (obs.get("valueCodeableConcept") or {}).get("text")
+                or ""
+            ),
+            "result_unit": (obs.get("valueQuantity") or {}).get("unit"),
+            "plan_id": plan_id,
+            "plan_name": plan["name"],
+            "consent_messaging": payload.get("consent_messaging", True),
+        }
+        if payload.get("case_id"):
+            case_payload["case_id"] = payload["case_id"]
+        # Keep a display name for board/patient chrome (synthetic only)
+        if patient.get("name"):
+            evidence0 = {"patient_display_name": str(patient["name"]).split("(")[0].strip()}
+            case_payload["evidence"] = evidence0
+        case = await self.ledger.create_case(db, case_payload)
         case_id = case["case_id"]
         self._begin_chain(case_id)
 
@@ -277,40 +281,69 @@ class Coordinator:
         elif "BI-RADS" in (case.get("result_value") or ""):
             result_class = "mammo_urgent"
 
-        res_raw = await self._delegate(
-            db,
-            case_id,
-            "comms",
-            comms_agent.run(
-                {
-                    "case_id": case_id,
-                    "inputs": {
-                        "language": case.get("language") or "en",
-                        "result_class": result_class,
-                        "urgency": case.get("urgency"),
-                        "consent_messaging": case.get("consent_messaging", True),
-                        "first_name_token": "Patient",
-                        "next_step": "confirm understanding and book a follow-up",
-                        "low_literacy": False,
-                    },
-                }
-            ),
+        display_name = (
+            (case.get("evidence") or {}).get("patient_display_name")
+            or "Patient"
         )
-        if res_raw is None:
-            return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
-        res = DelegationResult.model_validate(res_raw)
+        urgency_raw = case.get("urgency") or "URGENT"
+        next_by_lang = {
+            "en": "confirm understanding and book a follow-up",
+            "ar": "تأكيد الفهم وحجز متابعة",
+        }
+        urgency_by_lang = {
+            "en": {"CRITICAL": "Critical", "URGENT": "Urgent", "ROUTINE": "Routine"}.get(
+                urgency_raw, urgency_raw
+            ),
+            "ar": {"CRITICAL": "حرج", "URGENT": "عاجل", "ROUTINE": "روتيني"}.get(
+                urgency_raw, urgency_raw
+            ),
+        }
+        by_lang: dict[str, Any] = {}
+        primary_lang = case.get("language") or "en"
+        for lang in ("en", "ar"):
+            res_raw = await self._delegate(
+                db,
+                case_id,
+                "comms",
+                comms_agent.run(
+                    {
+                        "case_id": case_id,
+                        "inputs": {
+                            "language": lang,
+                            "result_class": result_class,
+                            "urgency": urgency_by_lang[lang],
+                            "consent_messaging": case.get("consent_messaging", True),
+                            "first_name_token": display_name,
+                            "next_step": next_by_lang[lang],
+                            "low_literacy": False,
+                        },
+                    }
+                ),
+            )
+            if res_raw is None:
+                return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+            res = DelegationResult.model_validate(res_raw)
+            by_lang[lang] = {
+                "text": res.outputs.get("message"),
+                "banner": res.outputs.get("banner"),
+                "teachback": res.outputs.get("teachback"),
+                "ai_generated": res.outputs.get("ai_generated", False),
+                "language": lang,
+            }
+        primary = by_lang.get(primary_lang) or by_lang["en"]
         await self._apply(
-            db, case_id, S.OWNED, S.NOTIFIED, "agent:comms", "patient notified", res.outputs
+            db, case_id, S.OWNED, S.NOTIFIED, "agent:comms", "patient notified", primary
         )
         messages = case["messages"]
         messages.append(
             {
                 "channel": "app",
-                "text": res.outputs.get("message"),
-                "language": res.outputs.get("language"),
-                "ai_generated": res.outputs.get("ai_generated", False),
-                "banner": res.outputs.get("banner"),
-                "teachback": res.outputs.get("teachback"),
+                "text": primary.get("text"),
+                "language": primary_lang,
+                "ai_generated": primary.get("ai_generated", False),
+                "banner": primary.get("banner"),
+                "teachback": primary.get("teachback"),
+                "by_lang": by_lang,
             }
         )
         await self.ledger.update_case(db, case_id, messages=messages)
@@ -354,19 +387,28 @@ class Coordinator:
         if not case:
             raise KeyError(case_id)
         questions = []
+        candidates: list[list[dict[str, Any]]] = []
         for m in reversed(case["messages"]):
             if m.get("teachback"):
-                questions = m["teachback"]
+                candidates.append(m["teachback"])
+            by_lang = m.get("by_lang") or {}
+            for loc in by_lang.values():
+                if loc.get("teachback"):
+                    candidates.append(loc["teachback"])
+            if candidates:
                 break
-        correct = True
-        # Require one answer per question — empty/partial never pass (#26)
-        if len(answers) != len(questions):
-            correct = False
-        else:
-            for q, a in zip(questions, answers):
-                if a != q.get("correct"):
-                    correct = False
-                    break
+        # Match any language variant; require one answer per question (#26, #32)
+        correct = False
+        questions = candidates[0] if candidates else []
+        for candidate in candidates:
+            if (
+                candidate
+                and len(answers) == len(candidate)
+                and all(a == q.get("correct") for q, a in zip(candidate, answers))
+            ):
+                correct = True
+                questions = candidate
+                break
         if correct and questions:
             await self._apply(
                 db, case_id, S.NOTIFIED, S.UNDERSTOOD, "patient:teachback", "teach-back passed", {"answers": answers}

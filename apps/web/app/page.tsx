@@ -66,7 +66,9 @@ export default async function HomePage() {
         </p>
       </section>
 
-      <div className="banner rise d3">{demo?.banner || "Synthetic data. Demo only."}</div>
+      <div className="banner rise d3">
+        {demo?.banner || "Synthetic data. Demo only. Shared demo — data resets on restart."}
+      </div>
 
       <section className="persona-grid rise d3">
         {(demo?.personas || []).map((p) => {

@@ -1,9 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
+
+type TeachQ = { prompt: string; choices: string[]; correct: string };
+
+type LangBundle = {
+  text?: string;
+  banner?: string;
+  teachback?: TeachQ[];
+  ai_generated?: boolean;
+  language?: string;
+};
 
 type Case = {
   case_id: string;
@@ -14,12 +24,12 @@ type Case = {
   result_unit?: string;
   language?: string;
   owner_name?: string;
-  messages: Array<{
-    text?: string;
-    banner?: string;
-    teachback?: Array<{ prompt: string; choices: string[]; correct: string }>;
-    ai_generated?: boolean;
-  }>;
+  evidence?: { patient_display_name?: string };
+  messages: Array<
+    LangBundle & {
+      by_lang?: Record<string, LangBundle>;
+    }
+  >;
   options: Array<{
     id: string;
     name: string;
@@ -34,27 +44,64 @@ type Case = {
 export default function PatientCasePage() {
   const params = useParams<{ caseId: string }>();
   const search = useSearchParams();
-  const lang = search.get("lang") || "ar";
+  const router = useRouter();
+  const lang = search.get("lang") === "en" ? "en" : "ar";
   const [c, setC] = useState<Case | null>(null);
   const [answers, setAnswers] = useState<string[]>([]);
   const [question, setQuestion] = useState(lang === "ar" ? "هل لدي سرطان؟" : "Do I have cancer?");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [notFound, setNotFound] = useState(false);
   const rtl = lang === "ar";
 
   const load = async () => {
-    const data = await api<Case>(`/cases/${params.caseId}`);
-    setC(data);
+    try {
+      const data = await api<Case>(`/cases/${params.caseId}`);
+      setC(data);
+      setNotFound(false);
+    } catch (e) {
+      const msg = String(e);
+      if (msg.toLowerCase().includes("not found") || msg.includes("404")) {
+        setNotFound(true);
+      }
+      setErr(msg);
+      setC(null);
+    }
   };
 
   useEffect(() => {
     load().catch((e) => setErr(String(e)));
   }, [params.caseId]);
 
+  useEffect(() => {
+    document.documentElement.lang = lang;
+    document.documentElement.dir = rtl ? "rtl" : "ltr";
+    return () => {
+      document.documentElement.lang = "en";
+      document.documentElement.dir = "ltr";
+    };
+  }, [lang, rtl]);
+
+  useEffect(() => {
+    setQuestion(lang === "ar" ? "هل لدي سرطان؟" : "Do I have cancer?");
+    setAnswers([]);
+  }, [lang]);
+
   const latestMsg = useMemo(() => {
     if (!c?.messages?.length) return null;
-    return [...c.messages].reverse().find((m) => m.text) || c.messages[c.messages.length - 1];
+    return [...c.messages].reverse().find((m) => m.text || m.by_lang) || c.messages[c.messages.length - 1];
   }, [c]);
+
+  const viewMsg: LangBundle | null = useMemo(() => {
+    if (!latestMsg) return null;
+    const localized = latestMsg.by_lang?.[lang];
+    if (localized?.text) return localized;
+    return latestMsg;
+  }, [latestMsg, lang]);
+
+  const firstName =
+    c?.evidence?.patient_display_name ||
+    (lang === "ar" ? "المريض" : "Patient");
 
   const t = {
     title: rtl ? "بطاقة النتيجة" : "Your result",
@@ -70,26 +117,30 @@ export default function PatientCasePage() {
     submit: rtl ? "إرسال" : "Submit",
     back: rtl ? "العودة" : "Back",
     state: rtl ? "حالة الحلقة" : "Loop state",
+    waking: rtl ? "إيقاظ العرض التجريبي (حتى ~20 ثانية)…" : "Waking up the demo (up to ~20 s)…",
+    missing: rtl ? "الحالة غير موجودة أو أُعيد ضبط العرض" : "Case not found or demo was reset",
+    hello: rtl ? `مرحباً ${firstName}` : `Hello, ${firstName}`,
+  };
+
+  const setLang = (next: "ar" | "en") => {
+    const q = new URLSearchParams(search.toString());
+    q.set("lang", next);
+    router.replace(`/patient/${params.caseId}?${q.toString()}`);
   };
 
   if (!c) {
     const missing = /not found|404/i.test(err);
     return (
       <main className="shell phone-shell" dir={rtl ? "rtl" : "ltr"}>
-        {missing ? (
+        {notFound || missing ? (
           <>
-            <p>{rtl ? "الحالة غير موجودة أو أُعيد ضبط العرض" : "Case not found or demo was reset"}</p>
+            <p>{t.missing}</p>
             <Link className="btn" href="/">
               {t.back}
             </Link>
           </>
         ) : (
-          <p className="muted">
-            {err ||
-              (rtl
-                ? "إيقاظ العرض التجريبي (حتى ~20 ثانية)…"
-                : "Waking up the demo (up to ~20 s)…")}
-          </p>
+          <p className="muted">{err || t.waking}</p>
         )}
       </main>
     );
@@ -107,6 +158,11 @@ export default function PatientCasePage() {
     }
   };
 
+  const urgencyLabel =
+    lang === "ar"
+      ? { CRITICAL: "حرج", URGENT: "عاجل", ROUTINE: "روتيني" }[c.urgency || ""] || c.urgency
+      : c.urgency;
+
   return (
     <main className="shell phone-shell" dir={rtl ? "rtl" : "ltr"}>
       <div className="topbar rise">
@@ -119,9 +175,27 @@ export default function PatientCasePage() {
             </div>
           </div>
         </div>
-        <Link className="btn secondary" href="/">
-          {t.back}
-        </Link>
+        <div className="actions" style={{ marginTop: 0 }}>
+          <button
+            type="button"
+            className={`btn ${lang === "ar" ? "" : "ghost"}`}
+            aria-pressed={lang === "ar"}
+            onClick={() => setLang("ar")}
+          >
+            ع
+          </button>
+          <button
+            type="button"
+            className={`btn ${lang === "en" ? "" : "ghost"}`}
+            aria-pressed={lang === "en"}
+            onClick={() => setLang("en")}
+          >
+            EN
+          </button>
+          <Link className="btn secondary" href="/">
+            {t.back}
+          </Link>
+        </div>
       </div>
 
       <div className="banner rise d2">{t.notDx}</div>
@@ -130,11 +204,14 @@ export default function PatientCasePage() {
       <section className="panel result-hero rise d2">
         <div className="chip-row">
           <span className="tag fact">{rtl ? "حقيقة مسجّلة" : "Recorded fact"}</span>
-          <span className={`tag ${c.urgency === "CRITICAL" ? "urgent" : "calculated"}`}>{c.urgency}</span>
+          <span className={`tag ${c.urgency === "CRITICAL" ? "urgent" : "calculated"}`}>{urgencyLabel}</span>
           <span className="tag role">
             {t.state}: {c.state}
           </span>
         </div>
+        <p className="muted" style={{ margin: "0 0 0.35rem" }}>
+          {t.hello}
+        </p>
         <h1>
           {c.result_display}
           {c.result_value ? (
@@ -150,22 +227,22 @@ export default function PatientCasePage() {
         <p className="muted" style={{ margin: 0, position: "relative" }}>
           {t.owner}: <strong>{c.owner_name || "—"}</strong>
         </p>
-        {latestMsg?.text ? (
+        {viewMsg?.text ? (
           <p style={{ whiteSpace: "pre-wrap", marginTop: "1rem", position: "relative" }}>
-            {latestMsg.ai_generated ? <span className="tag ai">AI</span> : null} {latestMsg.text}
+            {viewMsg.ai_generated ? <span className="tag ai">AI</span> : null} {viewMsg.text}
           </p>
         ) : null}
       </section>
 
-      {latestMsg?.teachback?.length && c.state === "PatientNotified" ? (
+      {viewMsg?.teachback?.length && c.state === "PatientNotified" ? (
         <section className="panel soft rise d3" style={{ marginTop: "0.9rem" }}>
           <h2 style={{ fontFamily: "var(--font-display)", marginTop: 0, letterSpacing: "-0.02em" }}>
             {t.teach}
           </h2>
-          {latestMsg.teachback.map((q, i) => (
+          {viewMsg.teachback.map((q, i) => (
             <div key={q.prompt} style={{ marginBottom: "1rem" }}>
               <p style={{ fontWeight: 600 }}>{q.prompt}</p>
-              <div className="choices">
+              <div className="choices" role="group" aria-label={q.prompt}>
                 {q.choices.map((ch) => (
                   <button
                     key={ch}
@@ -189,7 +266,7 @@ export default function PatientCasePage() {
             type="button"
             disabled={
               busy ||
-              !latestMsg.teachback.every((_, i) => Boolean(answers[i]))
+              !(viewMsg?.teachback || []).every((_, i) => Boolean(answers[i]))
             }
             onClick={() =>
               run(async () => {
@@ -281,20 +358,11 @@ export default function PatientCasePage() {
               })
             }
           >
-            {rtl ? "اسأل" : "Ask"}
-          </button>
-          <button className="btn secondary" type="button">
-            {t.talk}
+            {t.submit}
           </button>
         </div>
         {c.reassurance?.answer ? (
-          <div style={{ marginTop: "1rem" }}>
-            <span className="tag ai">AI · grounded</span>
-            <p>{c.reassurance.answer}</p>
-            {c.reassurance.citations?.length ? (
-              <p className="muted">KB: {c.reassurance.citations.map((x) => x.id).join(", ")}</p>
-            ) : null}
-          </div>
+          <p style={{ whiteSpace: "pre-wrap", marginTop: "0.9rem" }}>{c.reassurance.answer}</p>
         ) : null}
       </section>
     </main>

@@ -22,7 +22,7 @@ type Case = {
   result_display?: string;
   owner_name?: string;
   ladder_step?: number;
-  evidence?: Evidence;
+  evidence?: Evidence & { patient_display_name?: string };
   timeline: Array<{ kind: string; label: string; detail: string; actor: string; at?: number }>;
 };
 
@@ -208,6 +208,18 @@ export default function BoardPage() {
           >
             Advance +15m
           </button>
+          <button
+            className="btn ghost"
+            type="button"
+            onClick={async () => {
+              setSelected(null);
+              await api("/demo/reset", { method: "POST" });
+              await refresh();
+              setFlash("Demo reset — 6 seeded cases restored.");
+            }}
+          >
+            Reset demo
+          </button>
           <Link className="btn secondary" href="/">
             Demo home
           </Link>
@@ -215,7 +227,7 @@ export default function BoardPage() {
       </div>
 
       <div className="banner rise d2">
-        Synthetic data only. Switch persona to cast the second approval vote without reloading.
+        Shared demo — data resets on restart or Reset demo. Switch persona to cast the second approval vote.
       </div>
       {err ? <div className="banner">{err}</div> : null}
       {flash ? (
@@ -314,7 +326,7 @@ export default function BoardPage() {
                 </span>
               </div>
               <div className="muted">
-                {c.state} · {c.patient_id}
+                {c.state} · {(c.evidence as { patient_display_name?: string } | undefined)?.patient_display_name || c.patient_id}
                 {c.ladder_step ? ` · L${c.ladder_step}` : ""}
               </div>
             </button>

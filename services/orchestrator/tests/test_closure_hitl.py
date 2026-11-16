@@ -56,7 +56,7 @@ async def test_four_eyes_ok_in_body_has_no_effect(orch):
             "four_eyes_ok": True,
         },
     )
-    assert result["state"] != "Closed"
+    assert result["state"] == "ClosurePending"
     assert result["state"] != "ClosedByHuman"
     approvals = await list_approvals(db)
     assert len(approvals) == 1
@@ -108,7 +108,7 @@ async def test_two_person_closure_gc08_flow(orch):
         case["case_id"],
         human={"human_reason_code": "declined_care", "human_signer": "human:gp-aisha"},
     )
-    assert case["state"] == "OnHoldConsent"
+    assert case["state"] == "ClosurePending"
     approvals = await list_approvals(db)
     assert len(approvals) == 1
     token = approvals[0]["token"]
@@ -119,21 +119,24 @@ async def test_two_person_closure_gc08_flow(orch):
     pending = await submit_decision(db, token, "human:dr-sara", "approved")
     assert pending["status"] == "pending"
     case = await ledger.get_case(db, case["case_id"])
-    assert case["state"] == "OnHoldConsent"
+    assert case["state"] == "ClosurePending"
 
     # same user again — still one vote
     again = await submit_decision(db, token, "human:dr-sara", "approved")
     assert again["status"] == "pending"
     assert again["votes"] == 1
 
-    approved = await submit_decision(db, token, "human:supervisor", "approved")
-    assert approved["status"] == "approved"
+    threshold = await submit_decision(db, token, "human:supervisor", "approved")
+    assert threshold["status"] == "threshold_met"
+    # Approval must still be pending until transition succeeds
+    still = await list_approvals(db)
+    assert any(a["token"] == token for a in still)
 
     case = await coord.complete_approved_closure(
         db,
         case["case_id"],
         approvers=["human:dr-sara", "human:supervisor"],
-        evidence=approved.get("evidence") or {},
+        evidence=threshold.get("evidence") or {},
     )
     assert case["state"] == "ClosedByHuman"
     evidence = case.get("evidence") or {}

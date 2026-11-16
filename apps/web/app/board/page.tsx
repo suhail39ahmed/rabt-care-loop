@@ -208,9 +208,6 @@ export default function BoardPage() {
           >
             Advance +15m
           </button>
-          <Link className="btn ghost" href="/learn">
-            Learn
-          </Link>
           <Link className="btn secondary" href="/">
             Demo home
           </Link>
@@ -370,9 +367,11 @@ export default function BoardPage() {
                     Record outcome
                   </button>
                 ) : null}
-                <button className="btn danger" type="button" onClick={() => tryClose(selected.case_id)}>
-                  Request close (2-person if no evidence)
-                </button>
+                {selected.state !== "Closed" && selected.state !== "ClosedByHuman" ? (
+                  <button className="btn danger" type="button" onClick={() => tryClose(selected.case_id)}>
+                    Request close (2-person if no evidence)
+                  </button>
+                ) : null}
                 <Link className="btn secondary" href={`/patient/${selected.case_id}?lang=en`}>
                   Patient view
                 </Link>

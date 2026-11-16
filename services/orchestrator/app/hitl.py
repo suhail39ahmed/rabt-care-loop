@@ -106,10 +106,9 @@ async def submit_decision(
     )
     n = (await cur.fetchone())["n"]
     if n >= appr["required"]:
-        await db.execute("UPDATE approvals SET status = 'approved' WHERE token = ?", (token,))
-        await db.commit()
+        # Do NOT mark approved yet — caller must apply the case transition first (#25).
         return {
-            "status": "approved",
+            "status": "threshold_met",
             "case_id": appr["case_id"],
             "action": appr["action"],
             "token": token,
@@ -126,6 +125,14 @@ async def submit_decision(
         "required": appr["required"],
         "token": token,
     }
+
+
+async def mark_approved(db: aiosqlite.Connection, token: str) -> None:
+    await db.execute(
+        "UPDATE approvals SET status = 'approved' WHERE token = ? AND status = 'pending'",
+        (token,),
+    )
+    await db.commit()
 
 
 async def list_approvals(

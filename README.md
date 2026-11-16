@@ -7,12 +7,15 @@
 > **Prototype for the Future Health Digital Innovation Challenge.** Population Health track, challenge *Closing the Screening-to-Care Loop*.
 > **Synthetic data only. Not a medical device. It does not diagnose or prescribe.** Clinical thresholds and time limits are illustrative and need clinician / DoH Abu Dhabi sign-off.
 
-| Link | Status |
+| Link | URL |
 |---|---|
-| Live demo | https://rabt-web.onrender.com |
-| API | https://rabt-api-9oig.onrender.com |
-| Demo video (< 3 min) | TBD |
-| Solution deck (PDF) | TBD |
+| Live web | https://rabt-web.onrender.com |
+| API health | https://rabt-api-9oig.onrender.com/healthz |
+| API docs | https://rabt-api-9oig.onrender.com/docs |
+| Demo video | https://youtu.be/Qe9OF5uIzyg |
+| Repo | https://github.com/suhail39ahmed/rabt-care-loop |
+
+**Hosting:** Render free tier (Oregon). First request after idle can take ~20 s (cold start). SQLite reseeds on each API restart and is shared by all visitors.
 
 ---
 
@@ -110,7 +113,7 @@ Results measured locally with `pytest` / `make golden` / `make bench` (Python 3.
 
 | Suite | Result |
 |---|---|
-| All tests | **44+ passed** (orchestrator, golden, safety, MCP smoke) |
+| All tests | **57 passed** locally (`uv run pytest -q`; CI runs the same suite) |
 | Golden cases | **10/10** — see [benchmark/reports/golden_results.md](benchmark/reports/golden_results.md) |
 | Safety tests | No-diagnosis lexicon (EN/AR), scrub_pii, grounded_numbers, tool scopes, red flags |
 | State machine | Happy path, illegal transitions, closure needs evidence, human-only closure, property-based random walk |
@@ -131,7 +134,7 @@ All benchmark numbers are **simulated on synthetic data**, not real-world outcom
 |---|---|---|
 | API / orchestration | Python 3.12, FastAPI, Pydantic v2, own state machine | Same, on Azure Container Apps |
 | Case ledger | SQLite (aiosqlite) | PostgreSQL Flexible Server |
-| Web | Next.js 15, React 19, TypeScript; Arabic RTL | Azure Static Web Apps |
+| Web | Next.js 16, React 19, TypeScript; Arabic RTL | Azure Static Web Apps |
 | Rules / templates / KB | YAML rules, YAML AR/EN templates, Markdown KB | Clinician-approved versions |
 | LLM (optional) | Microsoft Agent Framework + Azure OpenAI (off by default) | Azure AI Foundry |
 | Safety | Lexicon always on; Azure AI Content Safety optional (off in live demo) | See `/healthz` flags |
@@ -154,7 +157,7 @@ All benchmark numbers are **simulated on synthetic data**, not real-world outcom
 ├── mcp-servers/                 # fhir-mcp, directory-mcp, messaging-mcp (stubs)
 ├── data/templates/              # approved AR/EN message templates (YAML)
 ├── data/kb/                     # reassurance knowledge base (Markdown)
-├── benchmark/config/            # baseline + cohort assumptions (runner: roadmap)
+├── benchmark/                   # golden_cases/, run_bench.py, config/, reports/
 ├── tests/golden/                # golden case tests
 ├── tests/safety/                # guardrail tests
 ├── docs/                        # architecture, responsible AI, data sources, assumptions, storyboard, assets
@@ -206,40 +209,45 @@ The API rebuilds a fresh demo database (`data/rabt.db`) on every start, so guest
 
 ## Demo walkthrough
 
-Open http://localhost:3000. The home page lists the synthetic guest personas from `GET /demo`, and no login is needed.
+Open https://rabt-web.onrender.com (or http://localhost:3000). Guest mode — no login. Writes need the board persona header (`X-Rabt-Persona`).
 
-1. **Fatima, patient (Arabic)** → `/patient/<caseId>`: RTL result card with the "not a diagnosis" banner → answer teach-back → pick an in-network option to book → ask a question (cited reassurance; a red-flag question goes to a human).
-2. **Dr Aisha, family physician** → `/board`: accept ownership of an awaiting case.
-3. **Coordinator Sara** → `/board`: the critical BP case is in the escalation queue, and the SMS has no result values. Mark it handled.
-4. **Closure gate** → `/board`: try to close a booked case before attendance (blocked), then mark it attended (it closes with evidence).
-5. **KPIs** → `/admin`: case states, critical escalation recall and closures for the demo seed.
+1. **Fatima, patient (Arabic)** → patient card: RTL result with “not a diagnosis” → answer every teach-back question → book an in-network option.
+2. **Dr Aisha** → `/board`: accept ownership of an awaiting case.
+3. **Coordinator Sara** → `/board`: critical BP in the escalation queue (SMS has no values). Use **Advance +15m** to move the ladder, then **Handle escalation**.
+4. **Evidence closure** → on a booked case: **Mark attended** (stays open) → **Record outcome** → closes with evidence.
+5. **Two-person close** → on a case without evidence: **Request close** as persona A → switch persona → Approve twice with distinct non-requester personas → `ClosedByHuman`.
+6. **KPIs** → `/admin`: false closures and critical recall on the synthetic seed.
 
-The interactive API docs are at http://localhost:8000/docs.
+API docs: https://rabt-api-9oig.onrender.com/docs
 
 ## API endpoints
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/healthz` | Health check |
-| GET | `/demo` | Guest personas, seeded case IDs, disclaimer banner |
-| GET | `/cases` · `/cases/{id}` | List cases / one case with timeline and provenance |
-| POST | `/cases/ingest` | Ingest an Observation (DQ → triage → ownership or escalation) |
-| POST | `/webhook/fhir` | FHIR REST-hook style intake (idempotent on resource version) |
-| POST | `/cases/{id}/accept` · `/decline` | Ownership handshake |
-| POST | `/cases/{id}/notify` | Send the patient message (template-first) + teach-back |
-| POST | `/cases/{id}/teachback` | Submit teach-back answers |
-| POST | `/cases/{id}/book` | Book a navigator option (out-of-network blocked) |
-| POST | `/cases/{id}/reject-referral` | Specialist rejects → re-route |
-| POST | `/cases/{id}/attend` | Record attendance + outcome, then run the closure verifier |
-| POST | `/cases/{id}/close` | Request closure (evidence or human exceptional closure) |
-| POST | `/cases/{id}/consent/withdraw` | Withdraw messaging consent |
-| POST | `/cases/{id}/reassure` | Patient question → KB answer or human |
-| POST | `/cases/{id}/econsult` | Build an e-consult packet |
-| POST | `/cases/{id}/escalation/handle` | Human handles a critical escalation |
-| GET | `/queue` | Open human-in-the-loop queue items |
-| POST | `/approvals/{token}/decision` | Vote on a pending approval |
-| GET | `/directory/providers` · `/directory/plans` | Fictional directory and insurance plans |
-| GET | `/kpis` | Prototype KPIs on the demo seed |
+Writes require `X-Rabt-Persona` (except ingest/webhook, which need `X-Rabt-Ingest-Secret` when configured). Reads are open for judges.
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/healthz` | — | Health check |
+| GET | `/demo` | — | Guest personas, seeded case IDs, disclaimer |
+| POST | `/demo/advance?minutes=N` | persona | Fast-forward demo clock + ladder tick |
+| GET | `/cases` · `/cases/{id}` | — | List / detail with timeline and provenance |
+| POST | `/cases/ingest` | ingest secret | Observation intake |
+| POST | `/webhook/fhir` | ingest secret | FHIR REST-hook intake |
+| POST | `/cases/{id}/accept` · `/decline` | persona | Ownership handshake |
+| POST | `/cases/{id}/notify` | persona | Patient message + teach-back |
+| POST | `/cases/{id}/teachback` | persona | Teach-back answers (`min_length=1`) |
+| POST | `/cases/{id}/book` | persona | Book navigator option |
+| POST | `/cases/{id}/attend` | persona | Attendance only (not outcome) |
+| POST | `/cases/{id}/outcome` | persona | Link outcome document / encounter ref |
+| POST | `/cases/{id}/close` | persona | Evidence close or start two-person approval |
+| POST | `/cases/{id}/consent/withdraw` | persona | Pause automation |
+| POST | `/cases/{id}/reassure` | persona | KB reassurance or human |
+| POST | `/cases/{id}/econsult` | persona | E-consult packet |
+| POST | `/cases/{id}/escalation/handle` | persona | Stop ladder / take ownership |
+| GET | `/queue` | — | HITL queue |
+| GET | `/approvals` | — | Open 4-eyes requests |
+| POST | `/approvals/{token}/decision` | persona | Approve / reject (identity from header) |
+| GET | `/directory/providers` · `/plans` | — | Fictional directory |
+| GET | `/kpis` | — | Computed false closures + critical recall |
 
 ## Responsible AI
 
@@ -259,41 +267,30 @@ Details: [docs/responsible-ai.md](docs/responsible-ai.md) · [docs/assumptions-l
 - **Insurance plans, networks and providers are fictional.**
 - **Not a medical device.** It does not diagnose, prescribe or replace clinical judgement. Triage thresholds, ladder delays and time limits are **illustrative placeholders**.
 
-## Demo links
+## Deploy / hosting
 
-| Asset | Link |
-|---|---|
-| Live demo | https://rabt-web.onrender.com |
-| API (`/healthz`) | https://rabt-api-9oig.onrender.com |
-| Demo video (≤3 min) | _Pending recording from team_ |
-| Pitch deck PDF | _Pending final export_ |
-
-## Deploy
-
-- **Docker:** `services/orchestrator/Dockerfile` (API) and `apps/web/Dockerfile` (Next.js standalone). Bind to `0.0.0.0:$PORT`.
-- **Render:** [render.yaml](render.yaml) blueprint (1 replica each; SQLite reseed on API start). Set `CORS_ORIGINS` to the web origin and `NEXT_PUBLIC_API_URL` to the API URL.
-- **Azure:** `infra/main.bicep` + `azure.yaml` scaffold; expand modules for Container Apps when ready (`azd up`).
-- Local: `make api` / `make web`, or `docker compose up` for mocks.
+- **Live today:** Render free web services — [rabt-web](https://rabt-web.onrender.com) + [rabt-api](https://rabt-api-9oig.onrender.com). See `render.yaml`.
+- **Docker:** `services/orchestrator/Dockerfile` and `apps/web/Dockerfile` (bind `0.0.0.0:$PORT`).
+- **Azure (pilot path):** `infra/main.bicep` + `azure.yaml` scaffold for Container Apps later.
+- Local: `make api` / `make web`, or `docker compose up`.
 
 ## Limitations
 
-Known gaps / honesty notes:
+- **Demo auth only:** persona header + ingest secret — not Entra ID / UAE PASS yet ([docs/responsible-ai.md](docs/responsible-ai.md)).
+- **MCP servers:** importable (`mcp>=1.1,<2`) and smoke-tested; not the live tool bus for the guest demo.
+- **Ledger:** SQLite, single replica, ephemeral on free Render; reseeds on restart.
+- **Deck PDF** link in Hack2Skill may still need a final export if the form requires a file upload.
 
-- **Demo auth only:** `X-Rabt-Persona` on writes and `X-Rabt-Ingest-Secret` for ingest/webhooks; not Entra ID / UAE PASS yet ([docs/responsible-ai.md](docs/responsible-ai.md)).
-- **MCP servers:** importable with `mcp>=1.1,<2` and smoke-tested; not yet the live tool bus for the demo path.
-- **Ledger** is SQLite with a single replica (ephemeral on free PaaS).
-- **Video / deck links** above are filled when the recording and PDF are ready (#13).
+## Done vs next
 
-## Roadmap and pilot path
+**Shipped:** FHIR BP shapes, two-person close, outcome evidence, board approvals, ladder tick + demo clock, real KPIs, golden 10/10, seeded benchmark, Render deploy, MCP pin, guardrail wiring, demo auth, CI jobs.
 
-| Next | Description |
+| Next (pilot) | Description |
 |---|---|
-| Safety fixes | FHIR-standard BP parsing, scheduled escalation ladder, end-to-end two-person closure with self-approval blocked |
-| Evaluation | All 10 golden cases; seeded baseline-vs-Rabt benchmark with fairness slices (simulated) |
-| Deployment | Bicep modules + `azd up` on Azure (UAE North where available): Container Apps, Static Web Apps, PostgreSQL, Key Vault, App Insights |
-| Data | Azure Health Data Services (FHIR R4) + Event Grid / Service Bus intake; Synthea cohort |
+| Data | Azure Health Data Services (FHIR R4) + Event Grid / Service Bus; Synthea cohort |
 | AI | Optional Azure OpenAI rewrite for comms only; lexicon always on; Content Safety optional (see [docs/submission-claims.md](docs/submission-claims.md)) |
-| Pilot | Integrate with Malaffi (HIE) and Sehatna through FHIR; clinician sign-off of rules and templates; DoH Abu Dhabi approvals; one screening programme as a first site |
+| Identity | Entra ID / UAE PASS |
+| Pilot site | Malaffi + Sehatna FHIR integration; clinician / DoH sign-off |
 
 ## Challenge context
 

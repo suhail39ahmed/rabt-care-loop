@@ -253,3 +253,40 @@ async def list_queue(db: aiosqlite.Connection) -> list[dict[str, Any]]:
         "SELECT * FROM queue_items WHERE status = 'open' ORDER BY created_at ASC"
     )
     return [dict(r) for r in await cur.fetchall()]
+
+
+async def resolve_queue_item(db: aiosqlite.Connection, qid: str) -> dict[str, Any] | None:
+    """Mark a single queue item resolved (#85)."""
+    cur = await db.execute("SELECT * FROM queue_items WHERE id = ?", (qid,))
+    row = await cur.fetchone()
+    if row is None:
+        return None
+    await db.execute(
+        "UPDATE queue_items SET status = 'resolved' WHERE id = ? AND status = 'open'",
+        (qid,),
+    )
+    await db.commit()
+    out = dict(row)
+    out["status"] = "resolved"
+    return out
+
+
+async def resolve_open_for_case(
+    db: aiosqlite.Connection,
+    case_id: str,
+    *,
+    kind: str | None = None,
+) -> int:
+    """Resolve open queue items for a case (optionally filtered by kind)."""
+    if kind:
+        cur = await db.execute(
+            "UPDATE queue_items SET status = 'resolved' WHERE case_id = ? AND status = 'open' AND kind = ?",
+            (case_id, kind),
+        )
+    else:
+        cur = await db.execute(
+            "UPDATE queue_items SET status = 'resolved' WHERE case_id = ? AND status = 'open'",
+            (case_id,),
+        )
+    await db.commit()
+    return cur.rowcount

@@ -111,6 +111,36 @@ export default function BoardPage() {
     await afterAction(id);
   };
 
+  const notify = async (id: string) => {
+    await api(`/cases/${id}/notify`, { method: "POST" });
+    await afterAction(id, "Patient notified");
+  };
+
+  const markUnreachable = async (id: string) => {
+    await api(`/cases/${id}/unreachable`, { method: "POST" });
+    await afterAction(id, "Marked unreachable");
+  };
+
+  const resumeConsent = async (id: string) => {
+    await api(`/cases/${id}/consent/resume`, { method: "POST" });
+    await afterAction(id, "Consent resumed");
+  };
+
+  const resolveDataQuery = async (id: string) => {
+    await api(`/cases/${id}/data-query/resolve`, { method: "POST" });
+    await afterAction(id, "Data query resolved");
+  };
+
+  const callbackDone = async (id: string) => {
+    await api(`/cases/${id}/callback/done`, { method: "POST" });
+    await afterAction(id, "Callback completed");
+  };
+
+  const resolveQueue = async (qid: string, caseId: string) => {
+    await api(`/queue/${qid}/resolve`, { method: "POST" });
+    await afterAction(caseId, "Queue item resolved");
+  };
+
   const handleEscalation = async (id: string) => {
     await api(`/cases/${id}/escalation/handle?actor=${encodeURIComponent(persona)}`, { method: "POST" });
     await afterAction(id);
@@ -309,19 +339,27 @@ export default function BoardPage() {
           </h2>
           {queue.length === 0 ? <p className="muted">No open queue items</p> : null}
           {queue.map((q) => (
-            <button
+            <div
               key={q.id}
-              type="button"
               className="choice"
               style={{ width: "100%", marginBottom: "0.5rem", background: "#fff7f4", borderColor: "#f2d2c8" }}
-              onClick={() => openCase(q.case_id)}
             >
-              <strong>{q.title}</strong>
-              <div className="muted">
-                {q.urgency} · {q.kind}
-                {q.ladder_step ? ` · ladder ${q.ladder_step}` : ""}
-              </div>
-            </button>
+              <button type="button" style={{ all: "unset", cursor: "pointer", display: "block", width: "100%" }} onClick={() => openCase(q.case_id)}>
+                <strong>{q.title}</strong>
+                <div className="muted">
+                  {q.urgency} · {q.kind}
+                  {q.ladder_step ? ` · ladder ${q.ladder_step}` : ""}
+                </div>
+              </button>
+              <button
+                className="btn secondary"
+                type="button"
+                style={{ marginTop: "0.4rem" }}
+                onClick={() => resolveQueue(q.id, q.case_id).catch((e) => setErr(String(e)))}
+              >
+                Resolve queue item
+              </button>
+            </div>
           ))}
 
           <h2 style={{ fontFamily: "var(--font-display)" }}>All cases</h2>
@@ -376,6 +414,31 @@ export default function BoardPage() {
                 {selected.state === "AwaitingOwner" ? (
                   <button className="btn" type="button" onClick={() => accept(selected.case_id)}>
                     Accept ownership
+                  </button>
+                ) : null}
+                {selected.state === "Owned" ? (
+                  <button className="btn" type="button" onClick={() => notify(selected.case_id)}>
+                    Notify patient
+                  </button>
+                ) : null}
+                {selected.state === "PatientNotified" ? (
+                  <button className="btn secondary" type="button" onClick={() => markUnreachable(selected.case_id)}>
+                    Mark unreachable
+                  </button>
+                ) : null}
+                {selected.state === "OnHoldConsent" ? (
+                  <button className="btn" type="button" onClick={() => resumeConsent(selected.case_id)}>
+                    Resume consent
+                  </button>
+                ) : null}
+                {selected.state === "DataQuery" ? (
+                  <button className="btn" type="button" onClick={() => resolveDataQuery(selected.case_id)}>
+                    Resolve data query
+                  </button>
+                ) : null}
+                {selected.state === "HumanCallback" ? (
+                  <button className="btn" type="button" onClick={() => callbackDone(selected.case_id)}>
+                    Callback done
                   </button>
                 ) : null}
                 {selected.state === "Escalated" ? (

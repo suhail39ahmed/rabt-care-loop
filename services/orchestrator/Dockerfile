@@ -7,7 +7,6 @@ RUN pip install --no-cache-dir uv
 COPY pyproject.toml uv.lock README.md ./
 COPY services ./services
 COPY data ./data
-COPY learn ./learn
 COPY benchmark ./benchmark
 
 RUN uv sync --frozen --no-dev

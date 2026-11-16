@@ -396,9 +396,20 @@ export default function BoardPage() {
                   </button>
                 ) : null}
                 {selected.state !== "Closed" && selected.state !== "ClosedByHuman" ? (
-                  <button className="btn danger" type="button" onClick={() => tryClose(selected.case_id)}>
-                    Request close (2-person if no evidence)
-                  </button>
+                  selected.urgency === "CRITICAL" && selected.state === "Escalated" ? (
+                    <button
+                      className="btn danger"
+                      type="button"
+                      disabled
+                      title="Handle escalation first"
+                    >
+                      Request close (handle escalation first)
+                    </button>
+                  ) : (
+                    <button className="btn danger" type="button" onClick={() => tryClose(selected.case_id)}>
+                      Request close (2-person if no evidence)
+                    </button>
+                  )
                 ) : null}
                 <Link className="btn secondary" href={`/patient/${selected.case_id}?lang=en`}>
                   Patient view

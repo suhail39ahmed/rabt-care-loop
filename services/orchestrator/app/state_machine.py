@@ -63,8 +63,15 @@ ALLOWED: dict[S, set[S]] = {
     S.BOOKED: {S.ATTENDED, S.NO_SHOW, S.CLOSURE_PENDING},
     S.NO_SHOW: {S.NOTIFIED, S.CLOSURE_PENDING},
     S.ATTENDED: {S.CLOSURE_PENDING},
-    # Bounce to Attended when attended but outcome missing (#53)
-    S.CLOSURE_PENDING: {S.CLOSED, S.OWNED, S.ATTENDED, S.ON_HOLD_CONSENT, S.CLOSED_BY_HUMAN},
+    # Restore on reject/timeout (#51); Attended included for missing-outcome bounce (#53).
+    S.CLOSURE_PENDING: {
+        S.CLOSED,
+        S.OWNED,
+        S.ATTENDED,
+        S.ON_HOLD_CONSENT,
+        S.CLOSED_BY_HUMAN,
+        *_OPEN_TO_CLOSURE_PENDING,
+    },
     S.ESCALATED: {S.OWNED, S.CLOSURE_PENDING},
     S.TRANSFERRED: {S.AWAITING_OWNER, S.CLOSURE_PENDING},
     S.ON_HOLD_CONSENT: {S.OWNED, S.CLOSED_BY_HUMAN, S.CLOSURE_PENDING},

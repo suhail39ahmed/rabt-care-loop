@@ -23,12 +23,22 @@
 %{ endif ~}
   </inbound>
   <backend>
+    <!-- Only runs on a cache miss: the semantic cache lookup returns hits before the backend. -->
+    <set-variable name="rabt-backend-called" value="true" />
     <retry condition="@(context.Response.StatusCode == 429 || context.Response.StatusCode >= 500)" count="2" interval="1" delta="1" max-interval="8" first-fast-retry="true">
       <forward-request buffer-request-body="true" timeout="60" />
     </retry>
   </backend>
   <outbound>
     <base />
+    <set-variable name="rabt-cache" value="@(context.Request.Headers.GetValueOrDefault(&quot;x-rabt-cacheable&quot;, &quot;false&quot;) != &quot;true&quot; ? &quot;none&quot; : (context.Variables.ContainsKey(&quot;rabt-backend-called&quot;) ? &quot;miss&quot; : &quot;hit&quot;))" />
+    <set-header name="x-rabt-cache" exists-action="override">
+      <value>@((string)context.Variables[&quot;rabt-cache&quot;])</value>
+    </set-header>
+    <emit-metric name="SemanticCacheRequests" namespace="rabt-ai-gateway" value="1">
+      <dimension name="Result" value="@((string)context.Variables[&quot;rabt-cache&quot;])" />
+      <dimension name="Task" value="@(context.Request.Headers.GetValueOrDefault(&quot;x-rabt-task&quot;, &quot;unknown&quot;))" />
+    </emit-metric>
 %{ if semantic_cache ~}
     <choose>
       <when condition="@(context.Request.Headers.GetValueOrDefault(&quot;x-rabt-cacheable&quot;, &quot;false&quot;) == &quot;true&quot;)">

@@ -63,6 +63,9 @@ async def _background_tick() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global DEMO_IDS, _tick_task
+    from app import monitoring
+
+    monitoring.configure()
     demo_clock.reset()
     # Delete the configured ledger path (not a hardcoded default) on startup
     db_path = ledger.db_path
@@ -789,6 +792,28 @@ async def insurer_card():
     from app.insurer import agent_card
 
     return agent_card()
+
+
+@app.get("/ai/metrics")
+async def ai_metrics_view():
+    """AI gateway usage seen by this API replica: tokens, cache, safety, routing, budget (no text)."""
+    from agents.common import ai_metrics, content_safety
+    from agents.common.llm_client import ai_enabled, llm_configured
+    from agents.common.llm_router import POLICY, deployment_for
+    from agents.common.prompts import list_prompts
+
+    return {
+        "ai_enabled": ai_enabled(),
+        "llm_configured": llm_configured(),
+        "content_safety": content_safety.configured(),
+        "router": {
+            "small": deployment_for("small") or None,
+            "strong": deployment_for("strong") or None,
+            "tasks": {k: {"tier": v.tier, "max_tokens": v.max_tokens, "cacheable": v.cacheable} for k, v in POLICY.items()},
+        },
+        "prompts": list_prompts(),
+        **ai_metrics.snapshot(),
+    }
 
 
 @app.get("/kpis")

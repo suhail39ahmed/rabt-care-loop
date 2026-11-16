@@ -40,16 +40,20 @@ async def draft_message(
 ) -> tuple[str, bool]:
     """Return (text, used_llm). Falls back to template if AI off / unsafe (#68, #105)."""
     from agents.common.llm_client import chat_completion
+    from agents.common.prompts import get_prompt
 
     scrubbed_template = scrub_pii(template_text, pii_tokens)
-    prompt = scrub_pii(scrubbed_template, pii_tokens)
-    instructions = (
-        "You rewrite an APPROVED template for a patient. Keep every fact. Never diagnose, "
-        "never give treatment advice, never add numbers. Target reading level: simple. "
-        f"Language: {lang}. Return only the message text."
-    )
+    prompt = get_prompt("comms_rewrite")
     try:
-        result = await chat_completion(system=instructions, user=prompt)
+        result = await chat_completion(
+            system=f"{prompt.system}\nLanguage: {lang}.",
+            user=scrubbed_template,
+            task="comms_rewrite",
+            temperature=prompt.temperature if prompt.temperature is not None else 0.2,
+            max_tokens=prompt.max_tokens,
+            pii_tokens=pii_tokens,
+            prompt_ref=prompt.ref,
+        )
         if not result:
             return scrubbed_template, False
         text = scrub_pii(str(result), pii_tokens)

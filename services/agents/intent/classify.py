@@ -77,3 +77,40 @@ def classify_concern(text: str, *, language: str = "en") -> dict[str, Any]:
         "method": "deterministic_rules",
         "snippet": APPROVED_SNIPPETS["other"].get(language) or APPROVED_SNIPPETS["other"]["en"],
     }
+
+
+LABELS = ("cost", "fear", "time", "transport", "language", "distrust", "other")
+
+
+async def classify_concern_ai(text: str, *, language: str = "en") -> dict[str, Any]:
+    """Rules first; the small model only labels messages the rules could not place.
+
+    Crisis detection is always deterministic and never delegated to the model. The model's reply must be
+    one of LABELS, anything else is treated as "other". With AI off this equals classify_concern().
+    """
+    base = classify_concern(text, language=language)
+    if base["crisis"] or base["intent"] != "other":
+        return base
+    from agents.common.llm_client import chat_completion
+    from agents.common.prompts import get_prompt
+
+    prompt = get_prompt("classify_concern")
+    label = await chat_completion(
+        system=prompt.system,
+        user=text,
+        task="classify_concern",
+        temperature=0,
+        max_tokens=prompt.max_tokens,
+        prompt_ref=prompt.ref,
+    )
+    label = (label or "").strip().strip(".").lower()
+    if label not in LABELS or label == "other":
+        return base
+    return {
+        "intent": label,
+        "crisis": False,
+        "confidence": 0.6,
+        "method": "llm_small_after_rules",
+        "prompt": prompt.ref,
+        "snippet": APPROVED_SNIPPETS[label].get(language) or APPROVED_SNIPPETS[label]["en"],
+    }

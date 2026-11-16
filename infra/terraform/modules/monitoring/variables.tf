@@ -43,3 +43,27 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "ai_alerts_enabled" {
+  description = "Create the AI alert rules (safety blocks, LLM errors, budget refusals, token burn)."
+  type        = bool
+  default     = true
+}
+
+variable "ai_alert_safety_blocks" {
+  description = "Alert when more than this many safety/injection blocks happen in 15 minutes."
+  type        = number
+  default     = 5
+}
+
+variable "ai_alert_llm_errors" {
+  description = "Alert when more than this many LLM errors happen in 15 minutes."
+  type        = number
+  default     = 5
+}
+
+variable "ai_alert_hourly_tokens" {
+  description = "Alert when the APIM gateway sees more than this many tokens in one hour."
+  type        = number
+  default     = 50000
+}

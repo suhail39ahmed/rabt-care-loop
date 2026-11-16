@@ -9,7 +9,7 @@ COPY services ./services
 COPY data ./data
 COPY benchmark ./benchmark
 
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --extra azure
 
 ENV PYTHONPATH=/app/services/orchestrator:/app/services:/app
 ENV RABT_DB=/data/rabt.db

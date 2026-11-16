@@ -7,8 +7,8 @@ en:
   teachback:
     - id: q1
       prompt: What should you do next?
-      choices: ["Wait and see", "confirm understanding and book a follow-up", "Start medication yourself"]
-      correct: "confirm understanding and book a follow-up"
+      choices: ["Wait and see", "Confirm understanding and book a follow-up", "Start medication yourself"]
+      correct: "Confirm understanding and book a follow-up"
     - id: q2
       prompt: How soon should you act?
       choices: ["Sometime next year", "As guided by the urgency on your card", "Only if you feel unwell"]

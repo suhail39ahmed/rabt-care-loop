@@ -286,12 +286,12 @@ Writes require `X-Rabt-Persona` (except ingest/webhook, which need `X-Rabt-Inges
 - **Privacy:** critical SMS never contains result values; synthetic data only.
 - **Transparency:** a provenance trail on every transition, and timeline items labelled fact / calculated / AI.
 
-Details: [docs/responsible-ai.md](docs/responsible-ai.md) · [docs/assumptions-limitations.md](docs/assumptions-limitations.md) · [docs/data-sources.md](docs/data-sources.md)
+Details: [docs/responsible-ai.md](docs/responsible-ai.md) · [docs/assumptions-limitations.md](docs/assumptions-limitations.md) · [docs/data-sources.md](docs/data-sources.md) · [docs/abu-dhabi-context.md](docs/abu-dhabi-context.md)
 
 ## Synthetic data and mock disclaimers
 
 - **All data is synthetic.** Demo patients and results are hand-crafted. No real personal or health data is used. [Synthea](https://github.com/synthetichealth/synthea) (Apache-2.0) is planned for the benchmark cohort and isn't required for the demo.
-- **Malaffi and Sehatna are mocked.** Rabt has no access to Abu Dhabi's HIE or patient app. A local FHIR intake and the web patient app play those roles. Real integration is the pilot path.
+- **Malaffi and Sehatna are mocked.** Rabt has no access to Abu Dhabi's HIE or patient app. A local FHIR intake and the web patient app play those roles. Real integration is the pilot path. Sourced programme context (IFHAS / PCSP, Malaffi, Sahatna) with explicit no-affiliation disclaimer: [docs/abu-dhabi-context.md](docs/abu-dhabi-context.md).
 - **Insurance plans, networks and providers are fictional.**
 - **Not a medical device.** It does not diagnose, prescribe or replace clinical judgement. Triage thresholds, ladder delays and time limits are **illustrative placeholders**.
 

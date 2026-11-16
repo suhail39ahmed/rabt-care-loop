@@ -752,6 +752,13 @@ async def plans():
     return PLANS
 
 
+@app.get("/insurer/agent-card")
+async def insurer_card():
+    from app.insurer import agent_card
+
+    return agent_card()
+
+
 @app.get("/kpis")
 async def kpis():
     from app.kpis import compute_kpis

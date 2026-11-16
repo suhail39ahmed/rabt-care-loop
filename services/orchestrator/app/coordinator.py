@@ -484,8 +484,29 @@ class Coordinator:
             await self._apply(db, case_id, current, S.REFERRED, "agent:navigator", "options ranked", res.outputs)
         elif current is S.REF_REJECTED:
             await self._apply(db, case_id, current, S.REFERRED, "agent:navigator", "re-routed", res.outputs)
-        await self.ledger.update_case(db, case_id, options=res.outputs.get("options") or [])
-        return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+        options = res.outputs.get("options") or []
+        from app.insurer import check_coverage
+
+        consent = bool(case.get("consent_insurer_query", True))
+        coverage = check_coverage(
+            plan_id=str(case.get("plan_id") or "plan-b"),
+            provider_id=str((options[0] or {}).get("id") if options else "prov-1"),
+            consent=consent,
+        )
+        evidence = dict(case.get("evidence") or {})
+        evidence["coverage"] = coverage
+        await self.ledger.update_case(db, case_id, options=options, evidence=evidence)
+        await self.ledger.append_timeline(
+            db,
+            case_id,
+            kind="calculated",
+            label="Insurer coverage check",
+            detail=f"{coverage.get('scenario')} · cost={coverage.get('patient_cost_aed')}",
+            actor="agent:insurer",
+        )
+        out = await self.ledger.get_case(db, case_id)
+        out["coverage"] = coverage  # type: ignore[index]
+        return out  # type: ignore[return-value]
 
     async def book(
         self, db: aiosqlite.Connection, case_id: str, option_id: str
@@ -498,10 +519,15 @@ class Coordinator:
             raise ValueError("unknown option")
         if not opt.get("in_network") and not opt.get("self_pay_ok"):
             raise ValueError("out_of_network_blocked")
+        coverage = (case.get("evidence") or {}).get("coverage") or {}
+        if coverage.get("preauth_required") and coverage.get("preauth_status") == "pending":
+            raise ValueError("preauth_pending — book blocked until insurer pre-auth clears")
+        if coverage.get("reason_code") == "DENIED":
+            raise ValueError("coverage_denied")
         await self._apply(
             db, case_id, S(case["state"]), S.BOOKED, "patient:book", f"booked {option_id}", {"option": opt}
         )
-        evidence = case.get("evidence") or {}
+        evidence = dict(case.get("evidence") or {})
         evidence["booked_option"] = option_id
         await self.ledger.update_case(db, case_id, evidence=evidence)
         return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]

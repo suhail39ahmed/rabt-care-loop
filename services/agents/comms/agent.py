@@ -38,34 +38,21 @@ async def draft_message(
     pii_tokens: dict[str, str] | None = None,
     allowed_numbers: list[str | float | int] | None = None,
 ) -> tuple[str, bool]:
-    """Return (text, used_llm). Falls back to template if Azure not configured or unsafe."""
-    import os
+    """Return (text, used_llm). Falls back to template if AI off / unsafe (#68, #105)."""
+    from agents.common.llm_client import chat_completion
 
     scrubbed_template = scrub_pii(template_text, pii_tokens)
-    if not os.environ.get("AZURE_OPENAI_ENDPOINT"):
-        return scrubbed_template, False
+    prompt = scrub_pii(scrubbed_template, pii_tokens)
+    instructions = (
+        "You rewrite an APPROVED template for a patient. Keep every fact. Never diagnose, "
+        "never give treatment advice, never add numbers. Target reading level: simple. "
+        f"Language: {lang}. Return only the message text."
+    )
     try:
-        # Optional Agent Framework path — skip if package missing
-        from agent_framework import Agent
-        from agent_framework.openai import OpenAIChatClient
-        from azure.identity.aio import AzureCliCredential
-
-        instructions = (
-            "You rewrite an APPROVED template for a patient. Keep every fact. Never diagnose, "
-            "never give treatment advice, never add numbers. Target reading level: simple. "
-            f"Language: {lang}. Return only the message text."
-        )
-        # Scrub PII before any LLM call
-        prompt = scrub_pii(scrubbed_template, pii_tokens)
-        async with AzureCliCredential() as cred:
-            client = OpenAIChatClient(
-                azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-                model=os.environ.get("AZURE_OPENAI_MODEL", ""),
-                credential=cred,
-            )
-            agent = Agent(client=client, instructions=instructions)
-            result = await agent.run(prompt)
-            text = scrub_pii(str(result), pii_tokens)
+        result = await chat_completion(system=instructions, user=prompt)
+        if not result:
+            return scrubbed_template, False
+        text = scrub_pii(str(result), pii_tokens)
         allowed = list(allowed_numbers or [])
         if allowed and not grounded_numbers(text, allowed):
             return scrubbed_template, False

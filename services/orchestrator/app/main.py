@@ -5,15 +5,15 @@ from __future__ import annotations
 import asyncio
 import os
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
 from app import demo_clock
-from app.auth import ingest_secret_ok
+from app.auth import ingest_secret_ok, persona_allowed
 from app.coordinator import Coordinator
 from app.demo_seed import seed_demo
 from app.hitl import ApprovalError, list_approvals, list_queue, mark_approved, submit_decision
@@ -88,7 +88,7 @@ async def demo_write_auth(request: Request, call_next):
     if request.method in {"GET", "HEAD", "OPTIONS"}:
         return await call_next(request)
     path = request.url.path
-    if path in {"/healthz"}:
+    if path in {"/healthz", "/"}:
         return await call_next(request)
     if path.startswith("/webhook/") or path == "/cases/ingest":
         secret = request.headers.get("X-Rabt-Ingest-Secret")
@@ -98,8 +98,18 @@ async def demo_write_auth(request: Request, call_next):
     persona = request.headers.get("X-Rabt-Persona")
     if not persona:
         return JSONResponse({"detail": "X-Rabt-Persona header required for write routes"}, status_code=401)
+    if not persona_allowed(persona):
+        return JSONResponse({"detail": f"unknown demo persona: {persona}"}, status_code=403)
     request.state.persona = persona
     return await call_next(request)
+
+
+@app.exception_handler(KeyError)
+async def key_error_handler(_request: Request, exc: KeyError):
+    detail = str(exc.args[0]) if exc.args else "not found"
+    if detail and not detail.startswith("case"):
+        detail = f"case not found: {detail}" if detail else "case not found"
+    return JSONResponse({"detail": detail or "case not found"}, status_code=404)
 
 
 class ObservationIn(BaseModel):
@@ -121,8 +131,8 @@ class BookIn(BaseModel):
 
 
 class DecisionIn(BaseModel):
-    decision: str  # approved | rejected
-    reason: str = ""
+    decision: Literal["approved", "rejected"]
+    reason: str = Field(default="", max_length=500)
     # user_id ignored if sent — identity comes from X-Rabt-Persona
     user_id: str | None = None
 
@@ -134,16 +144,16 @@ class CloseIn(BaseModel):
 
 
 class OutcomeIn(BaseModel):
-    outcome_ref: str
-    outcome_note: str = ""
+    outcome_ref: str = Field(max_length=200)
+    outcome_note: str = Field(default="", max_length=500)
 
 
 class QuestionIn(BaseModel):
-    question: str
+    question: str = Field(max_length=500)
 
 
 class DeclineIn(BaseModel):
-    reason: str
+    reason: str = Field(max_length=500)
     actor: str = "human:owner"
 
 
@@ -170,7 +180,7 @@ async def healthz():
 
 
 @app.post("/demo/advance")
-async def demo_advance(minutes: float = 15):
+async def demo_advance(minutes: float = Query(15, gt=0, le=1440)):
     """Fast-forward the demo clock and run one HITL/ladder tick."""
     offset = demo_clock.advance(minutes)
     db = await ledger.connect()
@@ -251,24 +261,29 @@ async def ingest(body: ObservationIn):
         await db.close()
 
 
+def _persona(request: Request) -> str:
+    return getattr(request.state, "persona", None) or request.headers.get("X-Rabt-Persona") or ""
+
+
 @app.post("/cases/{case_id}/accept")
-async def accept(case_id: str, actor: str = "human:gp"):
+async def accept(case_id: str, request: Request, actor: str | None = None):
     db = await ledger.connect()
     try:
-        return await coordinator.accept_ownership(db, case_id, actor)
+        return await coordinator.accept_ownership(db, case_id, _persona(request) or actor or "human:gp")
     except IllegalTransition as e:
         raise HTTPException(400, str(e)) from e
-    except KeyError:
-        raise HTTPException(404, "case not found") from None
     finally:
         await db.close()
 
 
 @app.post("/cases/{case_id}/decline")
-async def decline(case_id: str, body: DeclineIn):
+async def decline(case_id: str, body: DeclineIn, request: Request):
     db = await ledger.connect()
     try:
-        return await coordinator.decline_ownership(db, case_id, body.actor, body.reason)
+        actor = _persona(request) or body.actor
+        return await coordinator.decline_ownership(db, case_id, actor, body.reason)
+    except IllegalTransition as e:
+        raise HTTPException(400, str(e)) from e
     finally:
         await db.close()
 
@@ -289,6 +304,8 @@ async def teachback(case_id: str, body: TeachbackIn):
     db = await ledger.connect()
     try:
         return await coordinator.submit_teachback(db, case_id, body.answers)
+    except IllegalTransition as e:
+        raise HTTPException(400, str(e)) from e
     finally:
         await db.close()
 
@@ -324,21 +341,22 @@ async def record_outcome(case_id: str, body: OutcomeIn):
         )
     except IllegalTransition as e:
         raise HTTPException(400, str(e)) from e
-    except KeyError:
-        raise HTTPException(404, "case not found") from None
     finally:
         await db.close()
 
 
 @app.post("/cases/{case_id}/close")
-async def close_case(case_id: str, body: CloseIn | None = None):
+async def close_case(case_id: str, request: Request, body: CloseIn | None = None):
     db = await ledger.connect()
     try:
-        human = body.model_dump(exclude_none=True) if body else None
-        # Ignore legacy four_eyes_ok if a client still sends it
-        if human:
-            human.pop("four_eyes_ok", None)
-        return await coordinator.try_close(db, case_id, human=human)
+        human = body.model_dump(exclude_none=True) if body else {}
+        human.pop("four_eyes_ok", None)
+        # Requester identity always comes from the persona header
+        persona = _persona(request)
+        if persona:
+            human["human_signer"] = persona
+            human["requested_by"] = persona
+        return await coordinator.try_close(db, case_id, human=human or None)
     except IllegalTransition as e:
         msg = str(e)
         code = 409 if "already Closed" in msg else 400
@@ -354,6 +372,8 @@ async def reject_referral(case_id: str, reason: str = "capacity"):
     db = await ledger.connect()
     try:
         return await coordinator.reject_referral(db, case_id, reason)
+    except IllegalTransition as e:
+        raise HTTPException(400, str(e)) from e
     finally:
         await db.close()
 
@@ -363,6 +383,8 @@ async def withdraw(case_id: str):
     db = await ledger.connect()
     try:
         return await coordinator.withdraw_consent(db, case_id)
+    except IllegalTransition as e:
+        raise HTTPException(400, str(e)) from e
     finally:
         await db.close()
 
@@ -372,6 +394,8 @@ async def reassure(case_id: str, body: QuestionIn):
     db = await ledger.connect()
     try:
         return await coordinator.reassure(db, case_id, body.question)
+    except IllegalTransition as e:
+        raise HTTPException(400, str(e)) from e
     finally:
         await db.close()
 
@@ -381,15 +405,21 @@ async def econsult(case_id: str):
     db = await ledger.connect()
     try:
         return await coordinator.econsult_packet(db, case_id)
+    except IllegalTransition as e:
+        raise HTTPException(400, str(e)) from e
     finally:
         await db.close()
 
 
 @app.post("/cases/{case_id}/escalation/handle")
-async def handle_escalation(case_id: str, actor: str = "human:coordinator"):
+async def handle_escalation(case_id: str, request: Request, actor: str | None = None):
     db = await ledger.connect()
     try:
-        return await coordinator.human_handle_escalation(db, case_id, actor)
+        return await coordinator.human_handle_escalation(
+            db, case_id, _persona(request) or actor or "human:coordinator"
+        )
+    except IllegalTransition as e:
+        raise HTTPException(400, str(e)) from e
     finally:
         await db.close()
 
@@ -404,17 +434,17 @@ async def queue():
 
 
 @app.get("/approvals")
-async def approvals(status: str = "pending"):
+async def approvals(status: str = "pending", action: str | None = None):
     db = await ledger.connect()
     try:
-        return await list_approvals(db, status=status)
+        return await list_approvals(db, status=status, action=action)
     finally:
         await db.close()
 
 
 @app.post("/approvals/{token}/decision")
 async def approval_decision(token: str, body: DecisionIn, request: Request):
-    persona = getattr(request.state, "persona", None) or request.headers.get("X-Rabt-Persona")
+    persona = _persona(request)
     if not persona:
         raise HTTPException(401, "X-Rabt-Persona required")
     if body.decision not in {"approved", "rejected"}:
@@ -443,7 +473,7 @@ async def approval_decision(token: str, body: DecisionIn, request: Request):
             result["case"] = case
         return result
     except ApprovalError as e:
-        raise HTTPException(403, str(e)) from e
+        raise HTTPException(getattr(e, "status_code", 403), str(e)) from e
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     finally:

@@ -65,11 +65,12 @@ export default function BoardPage() {
     const [cs, q, ap] = await Promise.all([
       api<Case[]>("/cases"),
       api<QueueItem[]>("/queue"),
-      api<Approval[]>("/approvals"),
+      api<Approval[]>("/approvals?action=exceptional_closure"),
     ]);
     setCases(cs);
     setQueue(q);
-    setApprovals(ap);
+    // 4-eyes panel is closure-only; critical ladder items stay in the escalation queue
+    setApprovals(ap.filter((a) => a.action === "exceptional_closure"));
     return cs;
   }, []);
 

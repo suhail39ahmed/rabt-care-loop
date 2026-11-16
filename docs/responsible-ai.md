@@ -5,7 +5,7 @@
 - **Human gates** — critical escalation queue, teach-back failure callback, consent withdrawal, 4-eyes exceptional closure.
 - **Consent** — withdrawing messaging consent pauses automation.
 - **Audit** — provenance trail on every transition; timeline separates fact / calculated / AI.
-- **Fairness** — KPI slices planned with small-cell suppression (benchmark path).
+- **Fairness** — `/admin` Equity panel serves `benchmark/reports/report.json` via `GET /benchmark/fairness` with small-cell suppression (N &lt; 10 shown as `&lt;10`).
 - **Failure modes** — LLM/Content Safety down → static templates; never auto-close on timeout.
 - **Concerns and critical calls (planned, #86 #87)** — crisis / red-flag / refusal wording goes to a human before any AI reply; reassurance uses approved snippets only; a clinician, never AI alone, calls critical patients and logs the outcome; refusals are recorded as informed refusal, never forced closed.
 

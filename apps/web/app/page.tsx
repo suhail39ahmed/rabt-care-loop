@@ -10,6 +10,7 @@ type Demo = {
     case_id?: string;
     locale?: string;
   }>;
+  cases?: Record<string, string>;
 };
 
 export default async function HomePage() {
@@ -69,6 +70,39 @@ export default async function HomePage() {
       <div className="banner rise d3">
         {demo?.banner || "Synthetic data. Demo only. Shared demo — data resets on restart."}
       </div>
+
+      <section className="panel soft rise d3" style={{ marginTop: "1rem" }}>
+        <h2 style={{ fontFamily: "var(--font-display)", marginTop: 0 }}>Judge mode — 6-step tour</h2>
+        <p className="muted">One-click path through the live care loop using stable demo IDs.</p>
+        <ol style={{ margin: 0, paddingInlineStart: "1.2rem" }}>
+          <li>
+            <Link href={`/patient/${demo?.cases?.gc01_fatima_hba1c || "case-gc01-fatima"}?lang=ar`}>
+              Fatima patient card (AR)
+            </Link>
+          </li>
+          <li>
+            <Link href={`/board?focus=${demo?.cases?.gc03_owner || "case-gc03-owner"}`}>
+              Accept ownership (Dr Aisha)
+            </Link>
+          </li>
+          <li>
+            <Link href={`/board?focus=${demo?.cases?.gc02_critical_bp || "case-gc02-bp"}`}>
+              Critical ladder + expert call
+            </Link>
+          </li>
+          <li>
+            <Link href="/board">HITL queue &amp; two-person close</Link>
+          </li>
+          <li>
+            <Link href="/admin">Impact metrics &amp; equity</Link>
+          </li>
+          <li>
+            <Link href={`/board?focus=${demo?.cases?.gc01_fatima_hba1c || "case-gc01-fatima"}`}>
+              Why? panel + evidence pack
+            </Link>
+          </li>
+        </ol>
+      </section>
 
       <section className="persona-grid rise d3">
         {(demo?.personas || []).map((p) => {

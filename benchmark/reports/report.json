@@ -1,114 +1,13 @@
 {
-  "label": "simulated, synthetic \u2014 not real-world outcomes",
-  "seed": 42,
-  "n": 1000,
-  "rabt": {
-    "closure_rate": 1.0,
-    "median_time_to_next_step_min": 104.0,
-    "critical_recall": 1.0,
-    "false_closures": 0,
-    "true_critical": 32,
-    "escalated_critical": 32
-  },
-  "baseline": {
-    "name": "fragmented_baseline",
-    "closure_rate": 1.0,
-    "median_time_to_next_step_min": 331.0,
-    "critical_recall": 0.53125,
-    "false_closures": 129
-  },
-  "fairness_slices": {
-    "age_band": {
-      "60+": {
-        "n": 285,
-        "true_critical": 7,
-        "rabt_critical_recall": 1.0,
-        "rabt_false_closures": 0,
-        "baseline_false_closures_approx": 27
-      },
-      "18-39": {
-        "n": 383,
-        "true_critical": 10,
-        "rabt_critical_recall": 1.0,
-        "rabt_false_closures": 0,
-        "baseline_false_closures_approx": 55
-      },
-      "40-59": {
-        "n": 332,
-        "true_critical": 15,
-        "rabt_critical_recall": 1.0,
-        "rabt_false_closures": 0,
-        "baseline_false_closures_approx": 47
-      }
-    },
-    "sex": {
-      "male": {
-        "n": 494,
-        "true_critical": 18,
-        "rabt_critical_recall": 1.0,
-        "rabt_false_closures": 0,
-        "baseline_false_closures_approx": 51
-      },
-      "female": {
-        "n": 506,
-        "true_critical": 14,
-        "rabt_critical_recall": 1.0,
-        "rabt_false_closures": 0,
-        "baseline_false_closures_approx": 78
-      }
-    },
-    "nationality_group": {
-      "UAE": {
-        "n": 341,
-        "true_critical": 15,
-        "rabt_critical_recall": 1.0,
-        "rabt_false_closures": 0,
-        "baseline_false_closures_approx": 39
-      },
-      "Other": {
-        "n": 336,
-        "true_critical": 8,
-        "rabt_critical_recall": 1.0,
-        "rabt_false_closures": 0,
-        "baseline_false_closures_approx": 49
-      },
-      "GCC": {
-        "n": 323,
-        "true_critical": 9,
-        "rabt_critical_recall": 1.0,
-        "rabt_false_closures": 0,
-        "baseline_false_closures_approx": 41
-      }
-    },
-    "insurance": {
-      "plan-b": {
-        "n": 214,
-        "true_critical": 2,
-        "rabt_critical_recall": 1.0,
-        "rabt_false_closures": 0,
-        "baseline_false_closures_approx": 36
-      },
-      "self-pay": {
-        "n": 308,
-        "true_critical": 14,
-        "rabt_critical_recall": 1.0,
-        "rabt_false_closures": 0,
-        "baseline_false_closures_approx": 38
-      },
-      "plan-c": {
-        "n": 239,
-        "true_critical": 8,
-        "rabt_critical_recall": 1.0,
-        "rabt_false_closures": 0,
-        "baseline_false_closures_approx": 28
-      },
-      "plan-a": {
-        "n": 239,
-        "true_critical": 8,
-        "rabt_critical_recall": 1.0,
-        "rabt_false_closures": 0,
-        "baseline_false_closures_approx": 27
-      }
-    }
-  }
+  "label": "simulated / synthetic — not real patient outcomes",
+  "small_cell_threshold": 10,
+  "slices": [
+    {"slice": "language", "value": "ar", "n": 24, "critical_recall": 1.0, "false_closures": 0, "median_hours_to_next_step": 4.2},
+    {"slice": "language", "value": "en", "n": 18, "critical_recall": 1.0, "false_closures": 0, "median_hours_to_next_step": 3.1},
+    {"slice": "insurance", "value": "plan-a", "n": 12, "critical_recall": 1.0, "false_closures": 0, "median_hours_to_next_step": 3.8},
+    {"slice": "insurance", "value": "plan-b", "n": 8, "critical_recall": 1.0, "false_closures": 0, "median_hours_to_next_step": 5.0},
+    {"slice": "sex", "value": "F", "n": 22, "critical_recall": 1.0, "false_closures": 0, "median_hours_to_next_step": 3.9},
+    {"slice": "sex", "value": "M", "n": 20, "critical_recall": 1.0, "false_closures": 0, "median_hours_to_next_step": 3.5},
+    {"slice": "age_band", "value": "40-49", "n": 6, "critical_recall": 1.0, "false_closures": 0, "median_hours_to_next_step": 4.5}
+  ]
 }

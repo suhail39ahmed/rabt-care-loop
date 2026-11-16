@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from statistics import median
 from typing import Any
 
 
@@ -49,12 +50,60 @@ def was_escalated(case: dict[str, Any]) -> bool:
     return False
 
 
+def _time_to_owner_hours(case: dict[str, Any]) -> float | None:
+    opened = None
+    owned = None
+    for p in case.get("provenance") or []:
+        if p.get("to") == "AwaitingOwner" and opened is None:
+            opened = p.get("at")
+        if p.get("to") == "Owned":
+            owned = p.get("at")
+            break
+    if opened is None or owned is None:
+        # fall back to timeline
+        for t in case.get("timeline") or []:
+            if "AwaitingOwner" in (t.get("label") or "") and opened is None:
+                opened = t.get("at")
+            if "→ Owned" in (t.get("label") or ""):
+                owned = t.get("at")
+        if opened is None or owned is None:
+            return None
+    try:
+        return max(0.0, (float(owned) - float(opened)) / 3600.0)
+    except (TypeError, ValueError):
+        return None
+
+
 def compute_kpis(cases: list[dict[str, Any]]) -> dict[str, Any]:
     closed = [c for c in cases if c.get("state") in {"Closed", "ClosedByHuman"}]
     false_closures = sum(1 for c in cases if is_false_closure(c))
     true_critical = [c for c in cases if is_true_critical(c)]
     escalated_critical = [c for c in true_critical if was_escalated(c)]
     recall = (len(escalated_critical) / len(true_critical)) if true_critical else 1.0
+    verified = [c for c in closed if has_closure_evidence(c) or has_two_person_override(c)]
+    verified_rate = (len(verified) / len(closed)) if closed else 0.0
+    tto = [t for t in (_time_to_owner_hours(c) for c in cases) if t is not None]
+    funnel_order = [
+        "New",
+        "Triaged",
+        "AwaitingOwner",
+        "Owned",
+        "PatientNotified",
+        "Understood",
+        "Referred",
+        "Booked",
+        "Attended",
+        "Closed",
+        "ClosedByHuman",
+        "Escalated",
+        "OnHoldConsent",
+        "HumanCallback",
+    ]
+    states = {s: sum(1 for c in cases if c.get("state") == s) for s in {c.get("state") for c in cases}}
+    leak_funnel = [{"state": s, "count": states.get(s, 0)} for s in funnel_order if states.get(s, 0)]
+    for s, n in states.items():
+        if s not in funnel_order:
+            leak_funnel.append({"state": s, "count": n})
     return {
         "total_cases": len(cases),
         "closed": len(closed),
@@ -62,6 +111,9 @@ def compute_kpis(cases: list[dict[str, Any]]) -> dict[str, Any]:
         "critical_escalated": len(escalated_critical),
         "critical_escalation_recall": recall,
         "false_closures": false_closures,
-        "states": {s: sum(1 for c in cases if c.get("state") == s) for s in {c.get("state") for c in cases}},
+        "verified_closure_rate": verified_rate,
+        "time_to_owner_median_hours": median(tto) if tto else None,
+        "leak_funnel": leak_funnel,
+        "states": states,
         "note": "Prototype KPIs on synthetic demo seed — not real-world outcomes.",
     }

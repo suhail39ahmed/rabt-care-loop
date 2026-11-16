@@ -156,6 +156,7 @@ export default function PatientCasePage() {
                     key={ch}
                     type="button"
                     className={`choice ${answers[i] === ch ? "selected" : ""}`}
+                    aria-pressed={answers[i] === ch}
                     onClick={() => {
                       const next = [...answers];
                       next[i] = ch;
@@ -171,7 +172,10 @@ export default function PatientCasePage() {
           <button
             className="btn"
             type="button"
-            disabled={busy}
+            disabled={
+              busy ||
+              !latestMsg.teachback.every((_, i) => Boolean(answers[i]))
+            }
             onClick={() =>
               run(async () => {
                 const updated = await api<Case>(`/cases/${c.case_id}/teachback`, {

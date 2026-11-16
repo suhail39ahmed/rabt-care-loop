@@ -307,10 +307,14 @@ class Coordinator:
                 questions = m["teachback"]
                 break
         correct = True
-        for q, a in zip(questions, answers):
-            if a != q.get("correct"):
-                correct = False
-                break
+        # Require one answer per question — empty/partial never pass (#26)
+        if len(answers) != len(questions):
+            correct = False
+        else:
+            for q, a in zip(questions, answers):
+                if a != q.get("correct"):
+                    correct = False
+                    break
         if correct and questions:
             await self._apply(
                 db, case_id, S.NOTIFIED, S.UNDERSTOOD, "patient:teachback", "teach-back passed", {"answers": answers}
@@ -448,9 +452,15 @@ class Coordinator:
     async def try_close(
         self, db: aiosqlite.Connection, case_id: str, *, human: dict[str, Any] | None = None
     ) -> dict[str, Any]:
+        from app.state_machine import _OPEN_TO_CLOSURE_PENDING
+
         case = await self.ledger.get_case(db, case_id)
         if not case:
             raise KeyError(case_id)
+        current = S(case["state"])
+        if current in {S.CLOSED, S.CLOSED_BY_HUMAN}:
+            raise IllegalTransition(f"case already {current.value}")
+
         evidence = dict(case.get("evidence") or {})
         if human:
             # four_eyes_ok is ignored — two-person approval is the only override path
@@ -459,7 +469,6 @@ class Coordinator:
         res = DelegationResult.model_validate(
             await closure_agent.run({"case_id": case_id, "inputs": {"evidence": evidence}})
         )
-        current = S(case["state"])
         if current is S.ATTENDED:
             await self._apply(db, case_id, current, S.CLOSURE_PENDING, "agent:closure", "verify", {})
             current = S.CLOSURE_PENDING
@@ -467,8 +476,23 @@ class Coordinator:
             mode = res.outputs["evidence"].get("mode")
             if mode == "human":
                 if evidence.get("two_person_approved"):
+                    # Ensure we are on a state that can close by human
+                    if current is not S.CLOSURE_PENDING and current is not S.ON_HOLD_CONSENT:
+                        if current in _OPEN_TO_CLOSURE_PENDING:
+                            await self._apply(
+                                db,
+                                case_id,
+                                current,
+                                S.CLOSURE_PENDING,
+                                "system:hitl",
+                                "ready for two-person close",
+                                {},
+                            )
+                            current = S.CLOSURE_PENDING
                     approvers = evidence.get("approvers") or []
-                    actor = f"human:{approvers[0]}" if approvers else "human:board"
+                    actor = approvers[0] if approvers and str(approvers[0]).startswith("human:") else (
+                        f"human:{approvers[0]}" if approvers else "human:board"
+                    )
                     await self._apply(
                         db,
                         case_id,
@@ -482,6 +506,21 @@ class Coordinator:
                     requester = evidence.get("human_signer") or evidence.get("requested_by") or "human:requester"
                     if not str(requester).startswith("human:"):
                         requester = f"human:{requester}"
+                    # Move any open state into ClosurePending before creating the approval (#25)
+                    if current is not S.CLOSURE_PENDING:
+                        if current not in _OPEN_TO_CLOSURE_PENDING and current is not S.ON_HOLD_CONSENT:
+                            raise IllegalTransition(f"{current.value} -> ClosurePending")
+                        if current is S.ON_HOLD_CONSENT or current in _OPEN_TO_CLOSURE_PENDING:
+                            await self._apply(
+                                db,
+                                case_id,
+                                current,
+                                S.CLOSURE_PENDING,
+                                "system:hitl",
+                                "awaiting two-person approval",
+                                {},
+                            )
+                            current = S.CLOSURE_PENDING
                     token = await hitl.request_approval(
                         db,
                         case_id,
@@ -499,16 +538,6 @@ class Coordinator:
                         detail=token,
                         actor="system:hitl",
                     )
-                    if current in {S.CLOSURE_PENDING, S.OWNED}:
-                        await self._apply(
-                            db,
-                            case_id,
-                            current,
-                            S.ON_HOLD_CONSENT,
-                            "system:hitl",
-                            "awaiting two-person approval",
-                            {"approval_token": token},
-                        )
             else:
                 await self._apply(
                     db,
@@ -520,7 +549,8 @@ class Coordinator:
                     {"closure_ok": True, **evidence},
                 )
         else:
-            if current is S.CLOSURE_PENDING:
+            if current is S.CLOSURE_PENDING and not evidence.get("pending_approval_token"):
+                # Bounce only when blocked for missing evidence, not while awaiting votes
                 await self._apply(
                     db,
                     case_id,

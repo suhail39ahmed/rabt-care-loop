@@ -6,7 +6,7 @@ import os
 import re
 
 DENY = [
-    r"ignore (all|previous) instructions",
+    r"ignore .{0,40}instructions",
     r"system prompt",
     r"reveal (your|the) (system|hidden)",
     r"<\s*script",

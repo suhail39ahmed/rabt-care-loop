@@ -260,9 +260,27 @@ export default function PatientCasePage() {
         </p>
         {viewMsg?.text ? (
           <p style={{ whiteSpace: "pre-wrap", marginTop: "1rem", position: "relative" }}>
-            {viewMsg.ai_generated ? <span className="tag ai">AI</span> : null} {viewMsg.text}
+            {viewMsg.ai_generated ? <span className="tag ai">AI</span> : null} {viewMsg.text}{" "}
+            <button
+              type="button"
+              className="btn ghost"
+              aria-label={rtl ? "استمع" : "Listen"}
+              onClick={() => {
+                if (typeof window === "undefined" || !window.speechSynthesis) return;
+                const u = new SpeechSynthesisUtterance(viewMsg.text || "");
+                u.lang = lang === "ar" ? "ar-AE" : "en-US";
+                window.speechSynthesis.cancel();
+                window.speechSynthesis.speak(u);
+              }}
+            >
+              {rtl ? "استمع" : "Listen"}
+            </button>
           </p>
         ) : null}
+        <p className="muted" style={{ marginTop: "0.75rem", fontSize: "0.85rem" }}>
+          Extra approved snippets (hi/ur/ml/fil/bn) live in{" "}
+          <code>data/templates/i18n/patient_snippets.yaml</code> for pilot expansion.
+        </p>
       </section>
 
       {viewMsg?.teachback?.length && c.state === "PatientNotified" ? (

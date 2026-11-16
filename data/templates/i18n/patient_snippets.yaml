@@ -1,0 +1,15 @@
+﻿# Partial approved translations for high-impact langs (#71)
+# Full clinical review required before pilot.
+langs: [hi, ur, ml, fil, bn]
+banner:
+  hi: "यह निदान नहीं है"
+  ur: "یہ تشخیص نہیں ہے"
+  ml: "ഇത് ഒരു രോഗനിർണയമല്ല"
+  fil: "Hindi ito diagnosis"
+  bn: "এটি কোনো রোগ নির্ণয় নয়"
+generic_next_step:
+  hi: "कृपया फॉलो-अप बुक करें"
+  ur: "براہ کرم فالو اپ بک کریں"
+  ml: "ദയവായി ഫോളോ-അപ്പ് ബുക്ക് ചെയ്യുക"
+  fil: "Mangyaring mag-book ng follow-up"
+  bn: "অনুগ্রহ করে ফলো-আপ বুক করুন"

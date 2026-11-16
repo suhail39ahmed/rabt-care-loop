@@ -21,11 +21,9 @@ infra/.azure/
 .coverage
 htmlcov/
 
-# personal study material, not part of the submission
-/learn/
+# Public /learn UI removed; curriculum under /learn is tracked again.
 apps/web/app/learn/
 apps/web/lib/learn-*
 apps/web/public/learn-assets/
 docs/FutureHealth_Solution_Plan.md
-docs/learn-agents.md
 .hypothesis/

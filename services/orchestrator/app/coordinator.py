@@ -662,12 +662,16 @@ class Coordinator:
                 )
         else:
             if current is S.CLOSURE_PENDING and not evidence.get("pending_approval_token"):
-                # Bounce only when blocked for missing evidence, not while awaiting votes
+                # Bounce only when blocked for missing evidence, not while awaiting votes.
+                # Keep Attended when encounter exists so board shows "outcome needed" (#53).
+                bounce_to = (
+                    S.ATTENDED if evidence.get("attended_encounter") else S.OWNED
+                )
                 await self._apply(
                     db,
                     case_id,
                     current,
-                    S.OWNED,
+                    bounce_to,
                     "agent:closure",
                     "blocked — missing evidence",
                     res.outputs,

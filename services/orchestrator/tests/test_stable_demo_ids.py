@@ -28,7 +28,30 @@ async def test_seed_demo_ids_are_stable():
     assert ids_runs[0] == ids_runs[1]
     assert ids_runs[0]["gc01_fatima_hba1c"] == "case-gc01-fatima"
     assert ids_runs[0]["gc02_critical_bp"] == "case-gc02-bp"
-    assert len(ids_runs[0]) == 6
+    assert ids_runs[0]["gc03_owner"] == "case-gc03-owner"
+    assert len(ids_runs[0]) == 7
+
+
+@pytest.mark.asyncio
+async def test_gc03_seeded_awaiting_owner():
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    ledger = Ledger(db_path=path)
+    coord = Coordinator(ledger)
+    ids = await seed_demo(ledger, coord)
+    db = await ledger.connect()
+    try:
+        case = await ledger.get_case(db, ids["gc03_owner"])
+        assert case
+        assert case["state"] == "AwaitingOwner"
+        case = await coord.accept_ownership(db, case["case_id"], "human:gp-aisha")
+        assert case["state"] in {"Owned", "PatientNotified"}
+    finally:
+        await db.close()
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
 
 @pytest.mark.asyncio

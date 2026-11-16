@@ -248,8 +248,8 @@ async def demo_index():
                 "id": "gp-aisha",
                 "label": "Dr Aisha, family physician",
                 "role": "physician",
-                "case_key": "gc01_fatima_hba1c",
-                "case_id": DEMO_IDS.get("gc01_fatima_hba1c"),
+                "case_key": "gc03_owner",
+                "case_id": DEMO_IDS.get("gc03_owner"),
             },
             {
                 "id": "coordinator-sara",

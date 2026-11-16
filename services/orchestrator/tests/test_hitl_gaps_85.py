@@ -50,6 +50,7 @@ def test_accept_on_hold_consent_409(client):
 def test_queue_resolve(client):
     c, main_mod = client
     import asyncio
+
     from app import hitl
 
     async def enq():

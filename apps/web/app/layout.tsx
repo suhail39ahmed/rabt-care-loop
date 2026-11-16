@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Rabt — no result left behind",
     description: "Synthetic care-loop demo for screening follow-up in Abu Dhabi-style programmes.",
-    url: "https://rabt-web.onrender.com",
+    url: process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
     siteName: "Rabt",
     images: [{ url: "/og.png", width: 1200, height: 630, alt: "Rabt" }],
     type: "website",

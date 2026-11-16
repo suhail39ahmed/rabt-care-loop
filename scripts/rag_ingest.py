@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Chunk + mock-embed approved KB sources (#94). Dry-run safe."""
 from __future__ import annotations
-import argparse, hashlib, json
+
+import argparse
+import hashlib
+import json
 from pathlib import Path
 
 KB = Path(__file__).resolve().parents[1] / "data" / "kb"

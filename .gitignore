@@ -21,8 +21,9 @@ infra/.azure/
 .coverage
 htmlcov/
 
-# personal study material (local only)
+# personal study material and private notes (local only)
 /learn/
+/docs-private/
 apps/web/app/learn/
 apps/web/lib/learn-*
 apps/web/public/learn-assets/

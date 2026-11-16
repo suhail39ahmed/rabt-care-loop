@@ -26,6 +26,23 @@ def llm_configured() -> bool:
     return bool(model and base)
 
 
+def build_chat_url(provider: str, base: str, model: str) -> str:
+    """Chat completions URL for an OpenAI-compatible base or an Azure OpenAI / APIM gateway base.
+
+    Azure bases may be the account endpoint, the APIM gateway URL, `.../openai`, or a full
+    `.../openai/deployments/<name>` path; all get the deployment path and `api-version`.
+    """
+    base = base.rstrip("/")
+    if provider != "azure":
+        return f"{base}/chat/completions"
+    version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21")
+    if "/openai/deployments/" in base:
+        return f"{base}/chat/completions?api-version={version}"
+    if base.endswith("/openai"):
+        return f"{base}/deployments/{model}/chat/completions?api-version={version}"
+    return f"{base}/openai/deployments/{model}/chat/completions?api-version={version}"
+
+
 async def chat_completion(
     *,
     system: str,
@@ -40,23 +57,23 @@ async def chat_completion(
     if not llm_configured():
         return None
 
-    provider = (os.environ.get("LLM_PROVIDER") or "openai_compatible").strip().lower()
+    provider = (os.environ.get("LLM_PROVIDER") or "").strip().lower()
+    if provider in ("", "off"):
+        # Legacy AZURE_OPENAI_* settings imply the Azure URL shape.
+        provider = "azure" if os.environ.get("AZURE_OPENAI_ENDPOINT") else "openai_compatible"
     model = os.environ.get("LLM_MODEL") or os.environ.get("AZURE_OPENAI_MODEL") or ""
     base = (os.environ.get("LLM_BASE_URL") or os.environ.get("AZURE_OPENAI_ENDPOINT") or "").rstrip("/")
     key = os.environ.get("LLM_API_KEY") or os.environ.get("AZURE_OPENAI_API_KEY") or ""
 
     headers: dict[str, str] = {"Content-Type": "application/json"}
+    url = build_chat_url(provider, base, model)
     if key:
-        headers["Authorization"] = f"Bearer {key}"
         if provider == "azure":
+            # Azure OpenAI and the APIM AI gateway both read the key from `api-key`.
+            # No Bearer header: APIM in entra_jwt/both mode would reject a non-JWT bearer.
             headers["api-key"] = key
-
-    url = f"{base}/chat/completions"
-    if provider == "azure" and "openai.azure.com" in base and "/openai/deployments/" not in base:
-        url = (
-            f"{base}/openai/deployments/{model}/chat/completions"
-            f"?api-version={os.environ.get('AZURE_OPENAI_API_VERSION', '2024-06-01')}"
-        )
+        else:
+            headers["Authorization"] = f"Bearer {key}"
 
     payload: dict[str, Any] = {
         "model": model,

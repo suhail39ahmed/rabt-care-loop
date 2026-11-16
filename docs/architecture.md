@@ -268,7 +268,7 @@ Rules that do not change: the LLM only classifies, summarises and drafts from ap
 - **No message bus.** FastAPI routes call `Coordinator` methods directly and synchronously, in the same process (`services/orchestrator/app/main.py` → `coordinator.py`).
 - **SQLite ledger is the event log.** Every transition appends to the case `timeline_json` / `provenance_json`; webhook ingest is de-duplicated through `processed_events` (`ledger.py`, `coordinator.py:103`).
 - **Time-based events** come from a background loop that calls `coordinator.tick()` every 5 s (`main.py:35-45`) to sweep HITL timeouts and advance the escalation ladder, plus `POST /demo/advance` to move the demo clock.
-- **One process on the Render free tier**, one replica (`render.yaml`); the SQLite file is in `/tmp` and is reseeded on every start.
+- **One API replica** (locally, or one Azure Container App with `max_replicas = 1`); the SQLite file is in `/tmp` and is reseeded on every start.
 - **Limits:** single instance only; no guaranteed delivery if the process crashes or the free instance sleeps (in-flight work and timers are lost); no fan-out to other consumers; tick errors are swallowed.
 
 ```mermaid

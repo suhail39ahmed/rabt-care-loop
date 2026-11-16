@@ -1,0 +1,118 @@
+name: deploy
+
+# Builds the API and web images, pushes them to Azure Container Registry and rolls them out to
+# Azure Container Apps. GitHub OIDC only (no stored cloud secrets); runs in the `pilot` environment.
+# Skipped until the Azure variables are set AND DEPLOY_ENABLED=true (set it after the first infra apply).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/**"
+      - "apps/web/**"
+      - "data/**"
+      - "benchmark/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-pilot
+  cancel-in-progress: false
+
+env:
+  RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'rg-rabt-pilot-uaen' }}
+  ACR_NAME: ${{ vars.ACR_NAME || 'crrabtpilotuaen' }}
+  API_APP: ${{ vars.API_APP_NAME || 'ca-rabt-api-pilot' }}
+  WEB_APP: ${{ vars.WEB_APP_NAME || 'ca-rabt-web-pilot' }}
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          CLIENT: ${{ vars.AZURE_CLIENT_ID }}
+          ENABLED: ${{ vars.DEPLOY_ENABLED }}
+        run: |
+          if [ -n "$CLIENT" ] && [ "$ENABLED" = "true" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Deploy skipped::Set AZURE_* variables and DEPLOY_ENABLED=true after the first infra apply."
+          fi
+
+  deploy:
+    needs: gate
+    if: needs.gate.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: pilot
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Prepare
+        run: |
+          az extension add --name containerapp --upgrade --yes --only-show-errors
+          az acr login --name "$ACR_NAME"
+          echo "REGISTRY=$(az acr show -n "$ACR_NAME" --query loginServer -o tsv)" >> "$GITHUB_ENV"
+          echo "TAG=${GITHUB_SHA::12}" >> "$GITHUB_ENV"
+
+      - name: Build and push API image
+        run: |
+          docker build -f services/orchestrator/Dockerfile -t "$REGISTRY/rabt-api:$TAG" .
+          docker push "$REGISTRY/rabt-api:$TAG"
+
+      - name: Roll out API
+        run: |
+          az containerapp update -n "$API_APP" -g "$RESOURCE_GROUP" --image "$REGISTRY/rabt-api:$TAG" --only-show-errors -o none
+          az containerapp ingress update -n "$API_APP" -g "$RESOURCE_GROUP" --target-port 8000 --only-show-errors -o none
+          echo "API_URL=https://$(az containerapp show -n "$API_APP" -g "$RESOURCE_GROUP" --query properties.configuration.ingress.fqdn -o tsv)" >> "$GITHUB_ENV"
+          echo "WEB_URL=https://$(az containerapp show -n "$WEB_APP" -g "$RESOURCE_GROUP" --query properties.configuration.ingress.fqdn -o tsv)" >> "$GITHUB_ENV"
+
+      - name: Build and push web image
+        run: |
+          docker build -f apps/web/Dockerfile \
+            --build-arg NEXT_PUBLIC_API_URL="$API_URL" \
+            --build-arg NEXT_PUBLIC_SITE_URL="$WEB_URL" \
+            -t "$REGISTRY/rabt-web:$TAG" apps/web
+          docker push "$REGISTRY/rabt-web:$TAG"
+
+      - name: Roll out web
+        run: |
+          az containerapp update -n "$WEB_APP" -g "$RESOURCE_GROUP" --image "$REGISTRY/rabt-web:$TAG" --only-show-errors -o none
+          az containerapp ingress update -n "$WEB_APP" -g "$RESOURCE_GROUP" --target-port 3000 --only-show-errors -o none
+
+      - name: Smoke test
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "$API_URL/healthz" > /tmp/health.json; then break; fi
+            sleep 10
+          done
+          cat /tmp/health.json
+          curl -fsS -o /dev/null "$WEB_URL/"
+          curl -fsS -o /dev/null "$WEB_URL/board"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Deployed \`$TAG\`"
+            echo "- Web: $WEB_URL"
+            echo "- API: $API_URL ([docs]($API_URL/docs), [health]($API_URL/healthz))"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -9,7 +9,8 @@
 
 | Link | Status |
 |---|---|
-| Live demo | TBD |
+| Live demo | https://rabt-web.onrender.com |
+| API | https://rabt-api-9oig.onrender.com |
 | Demo video (< 3 min) | TBD |
 | Solution deck (PDF) | TBD |
 
@@ -262,7 +263,8 @@ Details: [docs/responsible-ai.md](docs/responsible-ai.md) · [docs/assumptions-l
 
 | Asset | Link |
 |---|---|
-| Live demo | _Set after Render/Azure deploy — see Deploy below_ |
+| Live demo | https://rabt-web.onrender.com |
+| API (`/healthz`) | https://rabt-api-9oig.onrender.com |
 | Demo video (≤3 min) | _Pending recording from team_ |
 | Pitch deck PDF | _Pending final export_ |
 

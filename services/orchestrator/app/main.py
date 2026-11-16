@@ -232,7 +232,9 @@ async def healthz():
         "service": "rabt-orchestrator",
         "guest_mode": settings.guest_mode,
         "content_safety": bool(settings.content_safety_endpoint),
+        "ai_enabled": settings.ai_enabled,
         "llm": settings.llm_enabled,
+        "llm_provider": settings.llm_provider or "off",
         "mcp_in_demo_path": False,
     }
 

@@ -79,3 +79,18 @@ curl -sS -o /dev/null -w "%{http_code}\n" https://rabt-web.onrender.com/og.png
 ```
 
 Do **not** treat a green smoke on old commit SHAs as success — check the deploy commit matches `origin/main`.
+
+## Optional LLM on Render (#68, #105)
+
+Demo stays template-only until you set:
+
+| Env | Purpose |
+|---|---|
+| `AI_ENABLED` | Global kill switch (`true` to allow any AI path) |
+| `LLM_PROVIDER` | `openai_compatible` or `azure` |
+| `LLM_BASE_URL` | OpenAI-compatible base URL |
+| `LLM_API_KEY` | API key (never commit) |
+| `LLM_MODEL` | Model / deployment name |
+| `CONTENT_SAFETY_ENDPOINT` | Optional Azure Content Safety |
+
+`/healthz` reports `ai_enabled`, `llm`, and `llm_provider`. With `AI_ENABLED=false` (default), no LLM network calls occur.

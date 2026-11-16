@@ -17,10 +17,8 @@ def client(monkeypatch):
     monkeypatch.setenv("RABT_DB", path)
     monkeypatch.setenv("RABT_KEEP_DB", "1")
     monkeypatch.delenv("RABT_INGEST_SECRET", raising=False)
-    # Import after env so ledger picks up RABT_DB
-    import app.main as main_mod
 
-    # Point module ledger at temp DB if already constructed
+    import app.main as main_mod
     from app.coordinator import Coordinator
     from app.ledger import Ledger
 
@@ -52,6 +50,15 @@ def test_unknown_persona_403(client):
     assert r.status_code == 403
 
 
+def test_healthz_ok(client):
+    r = client.get("/healthz")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert "content_safety" in body
+    assert "mcp_in_demo_path" in body
+
+
 def test_decision_maybe_422(client):
     r = client.post(
         "/approvals/not-a-token/decision",
@@ -70,6 +77,11 @@ def test_unknown_case_routes_404(client):
     ):
         r = client.post(path, headers=PERSONA, json={})
         assert r.status_code == 404, f"{path} -> {r.status_code} {r.text}"
+
+
+def test_get_unknown_case_404(client):
+    r = client.get("/cases/case-nope")
+    assert r.status_code == 404
 
 
 def test_advance_minutes_bounds(client):
@@ -103,18 +115,20 @@ def test_approvals_action_filter_hides_critical(client):
     all_appr = client.get("/approvals").json()
     closure_only = client.get("/approvals?action=exceptional_closure").json()
     assert all(a["action"] == "exceptional_closure" for a in closure_only)
-    # Fresh seed may have critical ladder approval(s)
     critical = [a for a in all_appr if a["action"] == "critical"]
     if critical:
-        assert len(closure_only) < len(all_appr) or not any(
-            a["action"] == "critical" for a in closure_only
-        )
+        assert not any(a["action"] == "critical" for a in closure_only)
+
+
+def test_demo_seeded(client):
+    demo = client.get("/demo").json()
+    assert demo.get("cases")
+    assert len(demo["cases"]) >= 1
 
 
 def test_close_requester_from_persona_not_body(client):
     demo = client.get("/demo").json()
     case_id = demo["cases"].get("gc01_fatima_hba1c") or next(iter(demo["cases"].values()))
-    # Own the case first if needed
     client.post(f"/cases/{case_id}/accept", headers=PERSONA_B)
     r = client.post(
         f"/cases/{case_id}/close",
@@ -125,7 +139,6 @@ def test_close_requester_from_persona_not_body(client):
     approvals = client.get("/approvals?action=exceptional_closure").json()
     if approvals:
         assert approvals[-1]["requested_by"] == "human:coordinator-sara"
-        # Requester cannot self-vote
         vote = client.post(
             f"/approvals/{approvals[-1]['token']}/decision",
             headers=PERSONA,

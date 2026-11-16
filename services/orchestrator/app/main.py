@@ -173,8 +173,9 @@ async def healthz():
         "ok": True,
         "service": "rabt-orchestrator",
         "guest_mode": settings.guest_mode,
-        "content_safety": bool(os.environ.get("CONTENT_SAFETY_ENDPOINT", "").strip()),
-        "llm": bool(os.environ.get("AZURE_OPENAI_ENDPOINT", "").strip()),
+        "content_safety": bool(settings.content_safety_endpoint),
+        "llm": settings.llm_enabled,
+        "mcp_in_demo_path": False,
     }
 
 

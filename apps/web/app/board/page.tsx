@@ -23,7 +23,7 @@ type Case = {
   owner_name?: string;
   ladder_step?: number;
   evidence?: Evidence;
-  timeline: Array<{ kind: string; label: string; detail: string; actor: string }>;
+  timeline: Array<{ kind: string; label: string; detail: string; actor: string; at?: number }>;
 };
 
 type QueueItem = {
@@ -164,7 +164,9 @@ export default function BoardPage() {
         <div className="brand-mark">
           <div className="mark">ر</div>
           <div>
-            <div style={{ fontFamily: "var(--font-display)", fontWeight: 700 }}>Rabt board</div>
+            <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "1.05rem", margin: 0 }}>
+              Rabt board
+            </h1>
             <div className="muted" style={{ fontSize: "0.82rem" }}>
               HITL queue · ownership · two-person closure
             </div>
@@ -384,6 +386,14 @@ export default function BoardPage() {
                   <li key={`${t.label}-${i}`}>
                     <span className={`tag ${t.kind}`}>{t.kind}</span> <strong>{t.label}</strong>
                     <div className="muted">
+                      {t.at
+                        ? `${new Date(t.at * 1000).toLocaleString(undefined, {
+                            day: "2-digit",
+                            month: "short",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })} · `
+                        : ""}
                       {t.detail} · {t.actor}
                     </div>
                   </li>

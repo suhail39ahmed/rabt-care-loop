@@ -47,10 +47,9 @@ async def test_fatima_greeting_uses_first_name():
         assert "Fatima" in (msg.get("text") or "")
         assert msg.get("by_lang", {}).get("en", {}).get("text")
         assert "Patient" not in (msg["by_lang"]["en"]["text"] or "")
-        # EN teach-back validates
-        en_tb = [q["correct"] for q in msg["by_lang"]["en"]["teachback"]]
-        # Case already notified; re-open path via answers against EN
-        # State is PatientNotified after seed for Fatima
+        # EN teach-back present with correct answers
+        en_tb = msg["by_lang"]["en"]["teachback"]
+        assert en_tb and all(q.get("correct") for q in en_tb)
         assert case["state"] == "PatientNotified"
     finally:
         await db.close()

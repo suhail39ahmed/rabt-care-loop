@@ -173,7 +173,7 @@ async def demo_advance(minutes: float = 15):
 @app.post("/demo/reset")
 async def demo_reset():
     """Wipe and reseed the shared demo (persona-protected)."""
-    global DEMO_IDS, coordinator
+    global DEMO_IDS
     demo_clock.reset()
     db_path = ledger.db_path
     try:

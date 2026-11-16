@@ -410,7 +410,11 @@ async def close_case(case_id: str, request: Request, body: CloseIn | None = None
         return await coordinator.try_close(db, case_id, human=human or None)
     except IllegalTransition as e:
         msg = str(e)
-        code = 409 if "already Closed" in msg else 400
+        code = (
+            409
+            if "already Closed" in msg or "Handle escalation before requesting close" in msg
+            else 400
+        )
         raise HTTPException(code, msg) from e
     except KeyError:
         raise HTTPException(404, "case not found") from None
@@ -521,6 +525,14 @@ async def approval_decision(token: str, body: DecisionIn, request: Request):
                 raise HTTPException(400, str(e)) from e
             await mark_approved(db, token)
             result["status"] = "approved"
+            result["case"] = case
+        elif result.get("status") == "rejected" and result.get("action") == "exceptional_closure":
+            case = await coordinator.cancel_exceptional_closure(
+                db,
+                result["case_id"],
+                reason=f"rejected by {persona}",
+                actor=persona,
+            )
             result["case"] = case
         return result
     except ApprovalError as e:

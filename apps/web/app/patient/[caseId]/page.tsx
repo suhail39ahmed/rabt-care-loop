@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, setApiPersona } from "@/lib/api";
 
 type TeachQ = { prompt: string; choices: string[]; correct: string };
 
@@ -70,6 +70,8 @@ export default function PatientCasePage() {
   };
 
   useEffect(() => {
+    // Patient writes must not use the board coordinator persona (#85).
+    setApiPersona("patient:fatima");
     load().catch((e) => setErr(String(e)));
   }, [params.caseId]);
 

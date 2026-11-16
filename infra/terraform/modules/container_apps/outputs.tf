@@ -42,3 +42,8 @@ output "app_ids" {
   description = "Container app IDs (diagnostics / role scopes)."
   value       = { api = azurerm_container_app.api.id, web = azurerm_container_app.web.id }
 }
+
+output "ingest_job_name" {
+  description = "KB ingestion job name (null when disabled)."
+  value       = var.ingest_job == null ? null : azurerm_container_app_job.ingest[0].name
+}

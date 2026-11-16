@@ -467,3 +467,15 @@ variable "llm_router_escalate_chars" {
   type        = number
   default     = 6000
 }
+
+variable "enable_kb_ingest_job" {
+  description = "Create the Container Apps Job that indexes approved KB docs from blob storage into AI Search."
+  type        = bool
+  default     = true
+}
+
+variable "kb_ingest_cron" {
+  description = "Schedule (UTC cron) for the KB ingestion job. Unchanged docs are skipped, so hourly runs are cheap."
+  type        = string
+  default     = "15 * * * *"
+}

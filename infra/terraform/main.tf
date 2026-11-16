@@ -271,6 +271,7 @@ module "rbac" {
       }
     },
     {
+      "app-kb-blob-writer"   = { scope = "${module.storage.id}/blobServices/default/containers/${var.kb_container_name}", role = "Storage Blob Data Contributor", principal_id = module.identity.principal_ids["app"], principal_type = "ServicePrincipal" }
       "apim-search-reader"   = { scope = module.search.id, role = "Search Index Data Reader", principal_id = module.apim.principal_id, principal_type = "ServicePrincipal" }
       "apim-kv-secrets"      = { scope = module.keyvault.id, role = "Key Vault Secrets User", principal_id = module.apim.principal_id, principal_type = "ServicePrincipal" }
       "search-openai"        = { scope = module.openai.ids["primary"], role = "Cognitive Services OpenAI User", principal_id = module.search.principal_id, principal_type = "ServicePrincipal" }
@@ -334,6 +335,7 @@ module "hosting" {
     environment = local.names.cae
     api_app     = local.names.api_app
     web_app     = local.names.web_app
+    ingest_job  = local.names.ingest_job
   }
   resource_group_name        = azurerm_resource_group.main.name
   location                   = var.location
@@ -361,6 +363,8 @@ module "hosting" {
       AZURE_OPENAI_EMBEDDING_DEPLOYMENT = local.embedding_deployment
       AZURE_SEARCH_ENDPOINT             = "${module.apim.gateway_url}/search"
       AZURE_SEARCH_INDEX                = var.search_index_name
+      AZURE_SEARCH_SEMANTIC_CONFIG      = var.search_semantic_ranker == "disabled" ? "" : "rabt-semantic"
+      KB_BLOB_CONTAINER_URL             = local.kb_container_url
       CONTENT_SAFETY_ENDPOINT           = var.enable_content_safety ? module.apim.gateway_url : ""
       GUEST_MODE                        = "true"
       RABT_DB                           = "/tmp/rabt.db"
@@ -374,6 +378,20 @@ module "hosting" {
   web = {
     min_replicas = var.web_min_replicas
   }
+  ingest_job = var.enable_kb_ingest_job ? {
+    identity_id           = module.identity.ids["ingest"]
+    identity_principal_id = module.identity.principal_ids["ingest"]
+    identity_client_id    = module.identity.client_ids["ingest"]
+    cron                  = var.kb_ingest_cron
+    env = {
+      KB_BLOB_CONTAINER_URL             = local.kb_container_url
+      AZURE_SEARCH_SERVICE_ENDPOINT     = "https://${local.names.search}.search.windows.net"
+      AZURE_SEARCH_INDEX                = var.search_index_name
+      AZURE_OPENAI_ENDPOINT             = module.openai.endpoints["primary"]
+      AZURE_OPENAI_EMBEDDING_DEPLOYMENT = local.embedding_deployment
+      AZURE_OPENAI_API_VERSION          = var.openai_api_version
+    }
+  } : null
   secret_names = concat(["rabt-ingest-secret", "appinsights-connection"], local.apim_subscription_required ? ["llm-api-key"] : [])
   secrets = merge(
     { "rabt-ingest-secret" = random_password.ingest_secret.result, "appinsights-connection" = module.monitoring.app_insights_connection_string },

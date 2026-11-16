@@ -51,6 +51,7 @@ locals {
     cae            = "cae-${local.base}"
     api_app        = "ca-${var.workload}-api-${var.environment}"
     web_app        = "ca-${var.workload}-web-${var.environment}"
+    ingest_job     = "caj-${var.workload}-ingest-${var.environment}"
     id_app         = "id-${local.base}-app"
     id_ingest      = "id-${local.base}-ingest"
     openai = {
@@ -58,6 +59,8 @@ locals {
       k => "oai-${var.workload}-${var.environment}-${lookup(local.region_codes, loc, "x")}${k == "primary" ? "" : "-2"}${local.sfx}"
     }
   }
+
+  kb_container_url = "https://${local.names.storage_kb}.blob.core.windows.net/${var.kb_container_name}"
 
   embedding_deployment = one([for name, d in var.openai_deployments : name if d.role == "embedding"])
   deployments_by_role = {

@@ -29,6 +29,7 @@ env:
   ACR_NAME: ${{ vars.ACR_NAME || 'crrabtpilotsea' }}
   API_APP: ${{ vars.API_APP_NAME || 'ca-rabt-api-pilot' }}
   WEB_APP: ${{ vars.WEB_APP_NAME || 'ca-rabt-web-pilot' }}
+  INGEST_JOB: ${{ vars.INGEST_JOB_NAME || 'caj-rabt-ingest-pilot' }}
 
 jobs:
   gate:
@@ -85,6 +86,16 @@ jobs:
           az containerapp ingress update -n "$API_APP" -g "$RESOURCE_GROUP" --target-port 8000 --only-show-errors -o none
           echo "API_URL=https://$(az containerapp show -n "$API_APP" -g "$RESOURCE_GROUP" --query properties.configuration.ingress.fqdn -o tsv)" >> "$GITHUB_ENV"
           echo "WEB_URL=https://$(az containerapp show -n "$WEB_APP" -g "$RESOURCE_GROUP" --query properties.configuration.ingress.fqdn -o tsv)" >> "$GITHUB_ENV"
+
+      - name: Roll out KB ingestion job and index the approved KB
+        run: |
+          if az containerapp job show -n "$INGEST_JOB" -g "$RESOURCE_GROUP" -o none 2>/dev/null; then
+            az containerapp job update -n "$INGEST_JOB" -g "$RESOURCE_GROUP" --image "$REGISTRY/rabt-api:$TAG" --only-show-errors -o none
+            az containerapp job start -n "$INGEST_JOB" -g "$RESOURCE_GROUP" --only-show-errors -o none
+            echo "Ingestion job $INGEST_JOB updated and started." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::notice::No ingestion job $INGEST_JOB (enable_kb_ingest_job = false); skipping."
+          fi
 
       - name: Build and push web image
         run: |

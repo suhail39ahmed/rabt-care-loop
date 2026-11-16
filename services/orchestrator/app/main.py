@@ -794,6 +794,79 @@ async def insurer_card():
     return agent_card()
 
 
+class KbSuggestionIn(BaseModel):
+    title: str = Field(min_length=3, max_length=120)
+    content: str = Field(min_length=20, max_length=6000)
+    language: Literal["en", "ar"] | None = None
+    reason: str = Field(default="", max_length=300)
+    source_case: str | None = Field(default=None, max_length=64)
+
+
+class KbDecisionIn(BaseModel):
+    reason: str = Field(default="", max_length=300)
+
+
+def _kb_reviewer(request: Request) -> str:
+    """Only physicians or supervisors approve KB content (clinician-approved learning loop)."""
+    if getattr(request.state, "role", None) not in {"physician", "supervisor"}:
+        raise HTTPException(403, "only a physician or supervisor can approve or reject KB content")
+    return request.state.persona
+
+
+@app.get("/kb")
+async def kb_list():
+    from agents.rag.kb import index_version, list_docs
+
+    return {
+        "index_version": index_version(),
+        "docs": [{k: d[k] for k in ("id", "title", "language", "approved_by", "hash")} for d in list_docs()],
+    }
+
+
+@app.get("/kb/pending")
+async def kb_pending():
+    from agents.rag.kb import list_pending
+
+    return list_pending()
+
+
+@app.post("/kb/suggestions")
+async def kb_suggest(body: KbSuggestionIn, request: Request):
+    from agents.common.guardrails import scrub_pii
+    from agents.rag.kb import suggest
+
+    return suggest(
+        title=body.title,
+        content=scrub_pii(body.content),
+        language=body.language,
+        suggested_by=request.state.persona,
+        reason=body.reason,
+        source_case=body.source_case,
+    )
+
+
+@app.post("/kb/pending/{sid}/approve")
+async def kb_approve(sid: str, request: Request):
+    from agents.rag.kb import approve
+
+    reviewer = _kb_reviewer(request)
+    try:
+        return approve(sid, reviewer)
+    except FileNotFoundError:
+        raise HTTPException(404, "suggestion not found") from None
+
+
+@app.post("/kb/pending/{sid}/reject")
+async def kb_reject(sid: str, body: KbDecisionIn, request: Request):
+    from agents.rag.kb import reject
+
+    reviewer = _kb_reviewer(request)
+    try:
+        return reject(sid, reviewer, body.reason)
+    except FileNotFoundError:
+        raise HTTPException(404, "suggestion not found") from None
+
+
 @app.get("/ai/metrics")
 async def ai_metrics_view():
     """AI gateway usage seen by this API replica: tokens, cache, safety, routing, budget (no text)."""

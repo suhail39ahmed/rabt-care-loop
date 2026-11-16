@@ -187,3 +187,77 @@ resource "azurerm_container_app" "api" {
 
   depends_on = [azurerm_role_assignment.acr_pull]
 }
+
+# ---------------------------------------------------------------------------
+# KB ingestion job: indexes approved KB docs from the blob container into AI Search, hourly by default.
+# Start it on demand with: az containerapp job start -n <name> -g <rg>
+# ---------------------------------------------------------------------------
+resource "azurerm_role_assignment" "ingest_acr_pull" {
+  count                = var.ingest_job == null ? 0 : 1
+  scope                = azurerm_container_registry.this.id
+  role_definition_name = "AcrPull"
+  principal_id         = var.ingest_job.identity_principal_id
+  principal_type       = "ServicePrincipal"
+  description          = "rabt: ingestion job pulls the API image"
+}
+
+resource "azurerm_container_app_job" "ingest" {
+  count                        = var.ingest_job == null ? 0 : 1
+  name                         = var.names.ingest_job
+  location                     = var.location
+  resource_group_name          = var.resource_group_name
+  container_app_environment_id = azurerm_container_app_environment.this.id
+  workload_profile_name        = var.infrastructure_subnet_id == null ? null : "Consumption"
+  replica_timeout_in_seconds   = 900
+  replica_retry_limit          = 1
+  tags                         = merge(var.tags, { component = "kb-ingest" })
+
+  schedule_trigger_config {
+    cron_expression          = var.ingest_job.cron
+    parallelism              = 1
+    replica_completion_count = 1
+  }
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [var.ingest_job.identity_id]
+  }
+
+  registry {
+    server   = azurerm_container_registry.this.login_server
+    identity = var.ingest_job.identity_id
+  }
+
+  template {
+    container {
+      name   = "ingest"
+      image  = var.job_bootstrap_image
+      cpu    = 0.5
+      memory = "1Gi"
+
+      env {
+        name  = "RABT_ROLE"
+        value = "ingest"
+      }
+
+      env {
+        name  = "AZURE_CLIENT_ID"
+        value = var.ingest_job.identity_client_id
+      }
+
+      dynamic "env" {
+        for_each = var.ingest_job.env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [template[0].container[0].image]
+  }
+
+  depends_on = [azurerm_role_assignment.ingest_acr_pull]
+}

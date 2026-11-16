@@ -7,7 +7,7 @@ import re
 from collections.abc import Iterable
 
 NO_DIAGNOSIS_PATTERNS = [
-    r"\byou have (diabetes|cancer|hypertension)\b",
+    r"(?<!mean )\byou have (diabetes|cancer|hypertension)\b",  # "does not mean you have" is allowed
     r"\byou are diagnos(?:ed|is)\b",
     r"\bdiagnosed with\b",
     r"\bthis means you have\b",

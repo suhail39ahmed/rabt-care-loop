@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from agents.common.guardrails import has_red_flag, no_diagnosis
+from agents.common.injection import injection_blocked
 
 KB_DIR = Path(__file__).resolve().parents[3] / "data" / "kb"
 
@@ -27,6 +28,25 @@ def search_kb(question: str, limit: int = 2) -> list[dict[str, str]]:
 async def run(req: dict[str, Any]) -> dict[str, Any]:
     question = (req.get("inputs") or {}).get("question") or ""
     lang = (req.get("inputs") or {}).get("language") or "en"
+    if injection_blocked(question):
+        return {
+            "case_id": req["case_id"],
+            "step": "reassurance",
+            "status": "needs_human",
+            "proposed_transition": "HumanCallback",
+            "outputs": {
+                "answer": (
+                    "I can only use approved screening FAQs. Please ask your care team."
+                    if lang == "en"
+                    else "يمكنني استخدام الأسئلة الشائعة المعتمدة فقط. يرجى سؤال فريق الرعاية."
+                ),
+                "hand_off": True,
+                "blocked_injection": True,
+                "ai_generated": False,
+                "citations": [],
+            },
+            "evidence_refs": [],
+        }
     if has_red_flag(question):
         return {
             "case_id": req["case_id"],

@@ -1,19 +1,43 @@
-# Non-secret outputs. Keys are never output: the APIM subscription key is in Key Vault
-# (or read with `az apim subscription keys list`), and anything secret is marked sensitive.
+# Non-secret outputs. Keys are never output in clear text: the APIM key goes to Key Vault and to the
+# API container as a Container Apps secret; anything secret is marked sensitive.
 
 output "resource_group_name" {
-  description = "Resource group holding the Rabt AI stack."
+  description = "Resource group holding the Rabt stack."
   value       = azurerm_resource_group.main.name
 }
 
+output "names" {
+  description = "Every resource name the naming convention produced (for docs and scripts)."
+  value = {
+    resource_group = local.names.resource_group
+    apim           = local.names.apim
+    key_vault      = local.names.key_vault
+    storage_kb     = local.names.storage_kb
+    search         = local.names.search
+    openai         = local.names.openai
+    content_safety = var.enable_content_safety ? local.names.content_safety : null
+    log_analytics  = local.names.log_analytics
+    app_insights   = local.names.app_insights
+    registry       = local.names.registry
+    environment    = local.names.cae
+    api_app        = local.names.api_app
+    web_app        = local.names.web_app
+  }
+}
+
 output "apim_gateway_url" {
-  description = "APIM gateway base URL (the only endpoint Render talks to)."
-  value       = azurerm_api_management.main.gateway_url
+  description = "APIM gateway base URL (the only endpoint the Rabt API talks to for AI)."
+  value       = module.apim.gateway_url
 }
 
 output "apim_name" {
   description = "APIM instance name."
-  value       = azurerm_api_management.main.name
+  value       = module.apim.name
+}
+
+output "apim_subscription_resource_id" {
+  description = "Resource ID of the Rabt APIM subscription (read the key with az rest .../listSecrets if needed)."
+  value       = module.apim.subscription_id
 }
 
 output "openai_deployments" {
@@ -26,18 +50,13 @@ output "openai_deployments" {
 }
 
 output "openai_endpoints" {
-  description = "Direct Azure OpenAI endpoints (private when private networking is on; Render should use APIM)."
-  value       = { for k, a in azurerm_cognitive_account.openai : k => a.endpoint }
-}
-
-output "search_endpoint" {
-  description = "AI Search endpoint via APIM."
-  value       = "${azurerm_api_management.main.gateway_url}/search"
+  description = "Direct Azure OpenAI endpoints (private when private networking is on; the app uses APIM)."
+  value       = module.openai.endpoints
 }
 
 output "search_service_name" {
-  description = "AI Search service name (direct endpoint https://<name>.search.windows.net)."
-  value       = azurerm_search_service.main.name
+  description = "AI Search service name."
+  value       = module.search.name
 }
 
 output "search_index_name" {
@@ -45,59 +64,84 @@ output "search_index_name" {
   value       = var.search_index_name
 }
 
-output "content_safety_endpoint" {
-  description = "Content Safety endpoint via APIM; the SDK appends /contentsafety/... itself (null when disabled)."
-  value       = var.enable_content_safety ? azurerm_api_management.main.gateway_url : null
-}
-
 output "storage_account_name" {
   description = "Storage account for KB documents."
-  value       = azurerm_storage_account.kb.name
+  value       = module.storage.name
 }
 
 output "kb_container_name" {
   description = "Private blob container for KB documents."
-  value       = azurerm_storage_container.kb.name
+  value       = module.storage.container_name
 }
 
 output "key_vault_name" {
   description = "Key Vault name."
-  value       = azurerm_key_vault.main.name
+  value       = module.keyvault.name
 }
 
-output "key_vault_secret_name_apim_key" {
-  description = "Key Vault secret holding the APIM subscription key (null when Terraform could not write it)."
-  value       = local.write_secrets ? azurerm_key_vault_secret.apim_rabt_key[0].name : null
+output "key_vault_secret_names" {
+  description = "Secrets Terraform wrote to Key Vault (empty when the vault is fully private)."
+  value       = local.write_secrets ? module.secrets[0].names : []
 }
 
 output "ingest_identity_client_id" {
   description = "Client ID of the ingestion managed identity."
-  value       = azurerm_user_assigned_identity.ingest.client_id
+  value       = module.identity.client_ids["ingest"]
 }
 
 output "application_insights_connection_string" {
   description = "App Insights connection string (sensitive)."
-  value       = azurerm_application_insights.main.connection_string
+  value       = module.monitoring.app_insights_connection_string
   sensitive   = true
 }
 
-output "render_env" {
-  description = "Non-secret env vars for the Render API service. Secret values (the APIM key) come from Key Vault, never from Terraform output."
-  value = {
-    AZURE_OPENAI_ENDPOINT             = azurerm_api_management.main.gateway_url
-    AZURE_OPENAI_API_VERSION          = var.openai_api_version
-    AZURE_OPENAI_MODEL                = local.deployments_by_role.small[0]
-    AZURE_OPENAI_MODEL_STRONG         = local.deployments_by_role.strong[0]
-    AZURE_OPENAI_EMBEDDING_DEPLOYMENT = local.embedding_deployment
-    AZURE_SEARCH_ENDPOINT             = "${azurerm_api_management.main.gateway_url}/search"
-    AZURE_SEARCH_INDEX                = var.search_index_name
-    CONTENT_SAFETY_ENDPOINT           = var.enable_content_safety ? azurerm_api_management.main.gateway_url : ""
-    KEY_VAULT_NAME                    = azurerm_key_vault.main.name
-    KEY_VAULT_SECRET_APIM_KEY         = "apim-rabt-subscription-key"
-  }
+# --- Hosting (used by the deploy workflow) ---
+output "acr_name" {
+  description = "Container registry the deploy workflow pushes to."
+  value       = module.hosting.registry_name
 }
 
-output "apim_subscription_resource_id" {
-  description = "Resource ID of the Rabt APIM subscription (use with listSecrets to read the key when it is not in Key Vault)."
-  value       = local.apim_subscription_required ? azurerm_api_management_subscription.rabt[0].id : null
+output "acr_login_server" {
+  description = "Container registry login server."
+  value       = module.hosting.registry_login_server
+}
+
+output "container_app_environment" {
+  description = "Container Apps environment name."
+  value       = module.hosting.environment_name
+}
+
+output "api_app_name" {
+  description = "API container app name."
+  value       = module.hosting.api_app_name
+}
+
+output "web_app_name" {
+  description = "Web container app name."
+  value       = module.hosting.web_app_name
+}
+
+output "api_url" {
+  description = "Public API URL."
+  value       = module.hosting.api_url
+}
+
+output "web_url" {
+  description = "Public web URL."
+  value       = module.hosting.web_url
+}
+
+output "security_summary" {
+  description = "Security posture at a glance (also asserted by terraform test)."
+  value = {
+    private_networking        = local.private
+    private_endpoints         = local.private ? sort(keys(module.private_endpoints[0].ids)) : []
+    ai_local_auth_enabled     = module.openai.local_auth_enabled
+    apim_log_body_bytes       = module.apim.log_body_bytes
+    apim_auth_mode            = var.apim_auth_mode
+    key_vault_secrets_written = local.write_secrets
+    diagnostics_targets       = sort(module.diagnostics.targets)
+    min_tls                   = "TLS1_2"
+    resource_lock             = var.enable_resource_lock
+  }
 }

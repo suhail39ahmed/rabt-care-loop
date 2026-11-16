@@ -16,7 +16,7 @@ skip-check:
   # Search replicas >= 3 for SLA: cost choice for a pilot (search_replica_count variable).
   - CKV_AZURE_208
   - CKV_AZURE_209
-  # APIM gateway stays public by design (Render is outside Azure); backends are private.
+  # APIM gateway stays public by design (External VNet mode; the API and operators call it over HTTPS); backends are private.
   - CKV_AZURE_174
   # Shared Access Signature expiration on storage is configured via sas_policy; check misreports it.
   - CKV2_AZURE_41

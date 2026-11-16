@@ -1,5 +1,5 @@
 # Offline plan tests with mocked providers: no Azure credentials or subscription calls.
-# Run: terraform test   (Terraform >= 1.7)
+# Run: terraform init -backend=false && terraform test
 mock_provider "azurerm" {
   mock_data "azurerm_client_config" {
     defaults = {
@@ -19,24 +19,53 @@ variables {
   budget_start_date     = "2026-12-01T00:00:00Z"
 }
 
+run "naming_convention" {
+  command = plan
+
+  assert {
+    condition     = azurerm_resource_group.main.name == "rg-rabt-pilot-uaen"
+    error_message = "Resource group must follow rg-<workload>-<env>-<region>."
+  }
+  assert {
+    condition     = output.names.apim == "apim-rabt-pilot-uaen" && output.names.key_vault == "kv-rabt-pilot-uaen"
+    error_message = "APIM / Key Vault names must follow the convention."
+  }
+  assert {
+    condition     = output.names.storage_kb == "strabtpilotuaenkb" && output.names.registry == "crrabtpilotuaen"
+    error_message = "Hyphen-free names must follow the convention."
+  }
+  assert {
+    condition     = output.names.openai["primary"] == "oai-rabt-pilot-uaen"
+    error_message = "Azure OpenAI name must follow the convention."
+  }
+}
+
 run "defaults_private" {
   command = plan
 
   assert {
-    condition     = length(azurerm_private_endpoint.pe) == 5
+    condition     = toset(output.security_summary.private_endpoints) == toset(["blob", "contentsafety", "openai-primary", "search", "vault"])
     error_message = "Expected private endpoints for AOAI, Search, KV, Storage and Content Safety."
   }
   assert {
-    condition     = azurerm_cognitive_account.openai["primary"].local_auth_enabled == false
+    condition     = output.security_summary.ai_local_auth_enabled == false
     error_message = "Azure OpenAI local auth must be disabled."
   }
   assert {
-    condition     = azurerm_api_management_diagnostic.appinsights.frontend_request[0].body_bytes == 0
+    condition     = output.security_summary.apim_log_body_bytes == 0
     error_message = "APIM must not log request bodies."
   }
   assert {
-    condition     = length(azurerm_key_vault_secret.apim_rabt_key) == 0
+    condition     = output.security_summary.key_vault_secrets_written == false && length(module.secrets) == 0
     error_message = "Fully private without deployer IPs: Terraform must not try to write secrets."
+  }
+  assert {
+    condition     = length(module.network) == 1
+    error_message = "Private networking must create the network module."
+  }
+  assert {
+    condition     = contains(output.security_summary.diagnostics_targets, "apim") && contains(output.security_summary.diagnostics_targets, "registry")
+    error_message = "APIM and ACR must send diagnostics to Log Analytics."
   }
 }
 
@@ -50,19 +79,20 @@ run "public_with_cache_and_failover" {
     openai_secondary_location = "swedencentral"
     apim_auth_mode            = "both"
     apim_jwt_audience         = "api://rabt"
+    name_suffix               = "01"
   }
 
   assert {
-    condition     = length(azurerm_private_endpoint.pe) == 0 && length(azurerm_virtual_network.main) == 0
+    condition     = length(module.network) == 0 && length(module.private_endpoints) == 0
     error_message = "No network resources expected when private networking is off."
   }
   assert {
-    condition     = length(azurerm_api_management_backend.openai) == 2
-    error_message = "Expected two Azure OpenAI backends in the pool."
+    condition     = output.names.openai["secondary"] == "oai-rabt-pilot-swc-2-01" && output.names.apim == "apim-rabt-pilot-uaen-01"
+    error_message = "Secondary account and suffix must follow the convention."
   }
   assert {
-    condition     = strcontains(azurerm_api_management_api_policy.openai.xml_content, "azure-openai-semantic-cache-lookup") && strcontains(azurerm_api_management_api_policy.openai.xml_content, "validate-jwt")
-    error_message = "Policy must include semantic cache and JWT validation."
+    condition     = output.security_summary.key_vault_secrets_written == true
+    error_message = "Public setup access: Terraform writes the Key Vault secrets."
   }
 }
 

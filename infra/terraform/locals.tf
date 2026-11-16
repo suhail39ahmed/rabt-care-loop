@@ -1,8 +1,25 @@
+# ---------------------------------------------------------------------------
+# Naming convention: <type>-<workload>-<environment>-<region code>[-<suffix>]
+#   rg-rabt-pilot-uaen, apim-rabt-pilot-uaen, kv-rabt-pilot-uaen, srch-rabt-pilot-uaen ...
+# Names without hyphens (Storage, ACR) drop them: strabtpilotuaenkb, crrabtpilotuaen.
+# Abbreviations follow the Microsoft Cloud Adoption Framework list.
+# ---------------------------------------------------------------------------
 locals {
-  suffix = random_string.suffix.result
-  base   = "${var.name_prefix}-${var.environment}"
-  # Globally unique, hyphen-free names (Storage, Key Vault limits).
-  compact = "${var.name_prefix}${var.environment}${local.suffix}"
+  region_codes = {
+    uaenorth      = "uaen"
+    uaecentral    = "uaec"
+    swedencentral = "swc"
+    eastus2       = "eus2"
+    eastus        = "eus"
+    westeurope    = "weu"
+    northeurope   = "neu"
+    francecentral = "frc"
+  }
+
+  region = local.region_codes[var.location]
+  base   = "${var.workload}-${var.environment}-${local.region}"
+  sfx    = var.name_suffix == "" ? "" : "-${var.name_suffix}"
+  flat   = "${var.workload}${var.environment}${local.region}${var.name_suffix}"
 
   private = var.enable_private_networking
 
@@ -22,12 +39,28 @@ locals {
     var.openai_secondary_location == null ? {} : { secondary = var.openai_secondary_location }
   )
 
-  openai_account_deployments = {
-    for pair in setproduct(keys(local.openai_accounts), keys(var.openai_deployments)) :
-    "${pair[0]}/${pair[1]}" => {
-      account    = pair[0]
-      deployment = pair[1]
-      config     = var.openai_deployments[pair[1]]
+  names = {
+    resource_group = "rg-${local.base}"
+    vnet           = local.base
+    apim           = "apim-${local.base}${local.sfx}"
+    apim_pip_label = "apim-${local.base}${local.sfx}"
+    key_vault      = "kv-${local.base}${local.sfx}"
+    storage_kb     = "st${local.flat}kb"
+    search         = "srch-${local.base}${local.sfx}"
+    content_safety = "cs-${var.workload}-${var.environment}-${lookup(local.region_codes, local.locations.content_safety, "x")}${local.sfx}"
+    redis          = "redis-${local.base}${local.sfx}"
+    log_analytics  = "log-${local.base}"
+    app_insights   = "appi-${local.base}"
+    action_group   = "ag-${local.base}"
+    registry       = "cr${local.flat}"
+    cae            = "cae-${local.base}"
+    api_app        = "ca-${var.workload}-api-${var.environment}"
+    web_app        = "ca-${var.workload}-web-${var.environment}"
+    id_app         = "id-${local.base}-app"
+    id_ingest      = "id-${local.base}-ingest"
+    openai = {
+      for k, loc in local.openai_accounts :
+      k => "oai-${var.workload}-${var.environment}-${lookup(local.region_codes, loc, "x")}${k == "primary" ? "" : "-2"}${local.sfx}"
     }
   }
 
@@ -40,10 +73,25 @@ locals {
   # Firewalled public access for setup from allowlisted IPs while private.
   setup_access_open = !local.private || length(var.deployer_ip_allowlist) > 0
 
-  apim_classic_sku = can(regex("^(Developer|Premium)_", var.apim_sku_name))
+  apim_classic_sku           = can(regex("^(Developer|Premium)_", var.apim_sku_name))
+  apim_subscription_required = var.apim_auth_mode != "entra_jwt"
+
+  # Terraform writes Key Vault secrets only when its runner can reach the vault data plane.
+  write_secrets = local.setup_access_open && var.grant_deployer_data_roles && local.apim_subscription_required
+
+  private_dns_zones = merge(
+    {
+      openai = "privatelink.openai.azure.com"
+      search = "privatelink.search.windows.net"
+      vault  = "privatelink.vaultcore.azure.net"
+      blob   = "privatelink.blob.core.windows.net"
+    },
+    var.enable_content_safety ? { cognitive = "privatelink.cognitiveservices.azure.com" } : {},
+    var.enable_semantic_cache ? { redis = "privatelink.redis.azure.net" } : {}
+  )
 
   default_tags = {
-    app         = "rabt"
+    workload    = var.workload
     environment = var.environment
     managed_by  = "terraform"
     repo        = "suhail39ahmed/rabt-care-loop"

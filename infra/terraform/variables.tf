@@ -7,14 +7,28 @@ variable "subscription_id" {
   default     = null
 }
 
-variable "name_prefix" {
-  description = "Short prefix for resource names (lowercase letters and digits)."
+variable "workload" {
+  description = "Workload name used in every resource name (<type>-<workload>-<environment>-<region>)."
   type        = string
   default     = "rabt"
 
   validation {
-    condition     = can(regex("^[a-z][a-z0-9]{1,9}$", var.name_prefix))
-    error_message = "name_prefix must be 2-10 lowercase letters/digits and start with a letter."
+    condition     = can(regex("^[a-z][a-z0-9]{1,7}$", var.workload))
+    error_message = "workload must be 2-8 lowercase letters/digits and start with a letter."
+  }
+}
+
+variable "name_suffix" {
+  description = <<-EOT
+    Optional short suffix appended to globally unique names (APIM, Key Vault, Storage, AI Search,
+    Azure OpenAI, ACR) if one is already taken by someone else, e.g. "01". Empty = readable names only.
+  EOT
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = can(regex("^[a-z0-9]{0,4}$", var.name_suffix))
+    error_message = "name_suffix must be 0-4 lowercase letters/digits."
   }
 }
 
@@ -24,8 +38,8 @@ variable "environment" {
   default     = "pilot"
 
   validation {
-    condition     = can(regex("^[a-z0-9]{2,8}$", var.environment))
-    error_message = "environment must be 2-8 lowercase letters/digits."
+    condition     = can(regex("^[a-z0-9]{2,6}$", var.environment))
+    error_message = "environment must be 2-6 lowercase letters/digits."
   }
 }
 
@@ -33,6 +47,11 @@ variable "location" {
   description = "Primary region. UAE North keeps data in the UAE where the service is available there."
   type        = string
   default     = "uaenorth"
+
+  validation {
+    condition     = contains(["uaenorth", "uaecentral", "swedencentral", "eastus2", "westeurope", "francecentral", "northeurope", "eastus"], var.location)
+    error_message = "location must be one of the regions in local.region_codes (add a short code there to use another region)."
+  }
 }
 
 variable "allowed_locations" {
@@ -86,6 +105,12 @@ variable "subnet_apim_cidr" {
   description = "Subnet for API Management VNet injection (/27 or larger)."
   type        = string
   default     = "10.40.2.0/27"
+}
+
+variable "subnet_apps_cidr" {
+  description = "Subnet for the Container Apps environment (/27 or larger, delegated)."
+  type        = string
+  default     = "10.40.4.0/27"
 }
 
 variable "deployer_ip_allowlist" {
@@ -244,7 +269,7 @@ variable "apim_publisher_email" {
 }
 
 variable "apim_auth_mode" {
-  description = "How callers authenticate to the gateway: subscription_key (Render), entra_jwt (Entra ID token) or both."
+  description = "How callers authenticate to the gateway: subscription_key (the Rabt API), entra_jwt (Entra ID token) or both."
   type        = string
   default     = "subscription_key"
 
@@ -383,7 +408,39 @@ variable "grant_deployer_data_roles" {
 }
 
 variable "openai_api_version" {
-  description = "Azure OpenAI data-plane API version the Rabt API should send (exported in render_env)."
+  description = "Azure OpenAI data-plane API version the Rabt API sends through APIM."
   type        = string
   default     = "2024-10-21"
+}
+
+# ---------------------------------------------------------------------------
+# App hosting (Azure Container Apps + ACR)
+# ---------------------------------------------------------------------------
+variable "ai_enabled" {
+  description = "Global AI kill switch for the deployed API (AI_ENABLED). false = every AI path stays on approved templates."
+  type        = bool
+  default     = false
+}
+
+variable "registry_sku" {
+  description = "Azure Container Registry SKU: Basic, Standard or Premium."
+  type        = string
+  default     = "Basic"
+}
+
+variable "api_min_replicas" {
+  description = "API replicas kept warm. Keep 1: the demo ledger is SQLite inside the container."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.api_min_replicas >= 0 && var.api_min_replicas <= 1
+    error_message = "api_min_replicas must be 0 or 1 (single-writer SQLite ledger)."
+  }
+}
+
+variable "web_min_replicas" {
+  description = "Web replicas kept warm (0 = scale to zero, a few seconds cold start)."
+  type        = number
+  default     = 1
 }

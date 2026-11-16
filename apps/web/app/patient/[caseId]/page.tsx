@@ -24,7 +24,7 @@ type Case = {
   result_unit?: string;
   language?: string;
   owner_name?: string;
-  evidence?: { patient_display_name?: string };
+  evidence?: { patient_display_name?: string; patient_display_name_ar?: string };
   messages: Array<
     LangBundle & {
       by_lang?: Record<string, LangBundle>;
@@ -100,8 +100,36 @@ export default function PatientCasePage() {
   }, [latestMsg, lang]);
 
   const firstName =
-    c?.evidence?.patient_display_name ||
-    (lang === "ar" ? "المريض" : "Patient");
+    (lang === "ar"
+      ? c?.evidence?.patient_display_name_ar || c?.evidence?.patient_display_name
+      : c?.evidence?.patient_display_name) || (lang === "ar" ? "المريض" : "Patient");
+
+  const stateLabels: Record<string, { en: string; ar: string }> = {
+    New: { en: "New", ar: "جديد" },
+    DataQuery: { en: "Data query", ar: "استعلام بيانات" },
+    Triaged: { en: "Triaged", ar: "فُرزت" },
+    Escalated: { en: "Escalated", ar: "مُصعَّدة" },
+    AwaitingOwner: { en: "Awaiting owner", ar: "بانتظار المالك" },
+    Owned: { en: "Owned", ar: "مملوكة" },
+    PatientNotified: { en: "Patient notified", ar: "تم إشعار المريض" },
+    Unreachable: { en: "Unreachable", ar: "تعذر الوصول" },
+    HumanCallback: { en: "Human callback", ar: "اتصال بشري" },
+    Understood: { en: "Understood", ar: "تم الفهم" },
+    Referred: { en: "Referred", ar: "أُحيلت" },
+    ReferralRejected: { en: "Referral rejected", ar: "رُفضت الإحالة" },
+    Booked: { en: "Booked", ar: "محجوزة" },
+    NoShow: { en: "No-show", ar: "لم يحضر" },
+    Attended: { en: "Attended", ar: "حضر" },
+    ClosurePending: { en: "Closure pending", ar: "بانتظار الإغلاق" },
+    Closed: { en: "Closed", ar: "مغلقة" },
+    ClosedByHuman: { en: "Closed by human", ar: "أُغلقت بشرياً" },
+    OnHoldConsent: { en: "On hold (consent)", ar: "موقوفة (موافقة)" },
+    Transferred: { en: "Transferred", ar: "مُحوَّلة" },
+  };
+  const stateLabel =
+    (lang === "ar" ? stateLabels[c?.state || ""]?.ar : stateLabels[c?.state || ""]?.en) ||
+    c?.state ||
+    "—";
 
   const t = {
     title: rtl ? "بطاقة النتيجة" : "Your result",
@@ -206,7 +234,7 @@ export default function PatientCasePage() {
           <span className="tag fact">{rtl ? "حقيقة مسجّلة" : "Recorded fact"}</span>
           <span className={`tag ${c.urgency === "CRITICAL" ? "urgent" : "calculated"}`}>{urgencyLabel}</span>
           <span className="tag role">
-            {t.state}: {c.state}
+            {t.state}: {stateLabel}
           </span>
         </div>
         <p className="muted" style={{ margin: "0 0 0.35rem" }}>

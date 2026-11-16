@@ -88,6 +88,7 @@ DEMO_PATIENTS = {
     "fatima": {
         "id": "pat-fatima",
         "name": "Fatima (synthetic)",
+        "name_ar": "فاطمة",
         "language": "ar",
         "age": 46,
         "sex": "female",
@@ -99,6 +100,7 @@ DEMO_PATIENTS = {
     "ravi": {
         "id": "pat-ravi",
         "name": "Ravi (synthetic)",
+        "name_ar": "رافي",
         "language": "en",
         "age": 38,
         "sex": "male",
@@ -110,6 +112,7 @@ DEMO_PATIENTS = {
     "omar": {
         "id": "pat-omar",
         "name": "Omar (synthetic)",
+        "name_ar": "عمر",
         "language": "en",
         "age": 58,
         "sex": "male",

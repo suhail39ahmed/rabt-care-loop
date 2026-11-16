@@ -36,6 +36,10 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["services/orchestrator/tests", "tests"]
 pythonpath = ["services/orchestrator", "services", "."]
+filterwarnings = [
+  # aiosqlite worker threads can outlive the pytest function loop on Windows
+  "ignore:Exception in thread:pytest.PytestUnhandledThreadExceptionWarning",
+]
 
 [tool.ruff]
 line-length = 110

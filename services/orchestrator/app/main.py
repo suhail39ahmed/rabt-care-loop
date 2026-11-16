@@ -392,7 +392,11 @@ async def close_case(case_id: str, request: Request, body: CloseIn | None = None
         return await coordinator.try_close(db, case_id, human=human or None)
     except IllegalTransition as e:
         msg = str(e)
-        code = 409 if "already Closed" in msg else 400
+        code = (
+            409
+            if "already Closed" in msg or "Handle escalation before requesting close" in msg
+            else 400
+        )
         raise HTTPException(code, msg) from e
     except KeyError:
         raise HTTPException(404, "case not found") from None

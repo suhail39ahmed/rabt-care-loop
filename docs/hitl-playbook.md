@@ -20,7 +20,9 @@ Diagrams: [architecture.md §C, §E](architecture.md). Safety rules: [responsibl
 | Who | Input (UI → API) | What the system does |
 |---|---|---|
 | Patient | Teach-back answers → `POST /cases/{id}/teachback` | Pass → `Understood`, navigation options. Fail → retry; second fail → `HumanCallback` + "Teach-back failed — human callback" queue item |
-| Patient | Book a slot → `POST /cases/{id}/book` | `Booked`, in-network option recorded |
+| Patient | Book a slot → `POST /cases/{id}/book` | `Booked`, option and payment path recorded; pay-and-claim options open a claim task |
+| Patient | Claim paperwork → `POST /cases/{id}/claim` (`documents_ready`, `submitted`) | Claim sent to the insurer agent, reference stored |
+| Coordinator | Insurer decision → `POST /cases/{id}/claim` (`approved`, `rejected`, `paid`) | Claim history on the case; patient sees the status |
 | Patient | Ask a question → `POST /cases/{id}/reassure` | Answer from the local approved KB only, no-diagnosis lexicon |
 | Clinician | **Accept ownership** → `POST /cases/{id}/accept` | `Owned`, SLA clock starts |
 | Clinician | Decline → `POST /cases/{id}/decline` (API only) | Queue item "ownership declined" |

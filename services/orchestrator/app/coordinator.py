@@ -465,6 +465,8 @@ class Coordinator:
                     "inputs": {
                         "pathway": case.get("pathway") or "gp_review",
                         "plan_network": {plan["network_id"]},
+                        "plan": plan,
+                        "allow_self_pay": bool((case.get("evidence") or {}).get("self_pay_opt_in")),
                         "providers": PROVIDERS,
                         "language": case.get("language") or "en",
                     },
@@ -493,8 +495,20 @@ class Coordinator:
             provider_id=str((options[0] or {}).get("id") if options else "prov-1"),
             consent=consent,
         )
+        from app.insurer import payment_options
+
+        payment = (
+            payment_options(
+                plan_id=str(case.get("plan_id") or "plan-b"),
+                provider_id=str(options[0].get("id")),
+                consent=consent,
+            )
+            if options
+            else {}
+        )
         evidence = dict(case.get("evidence") or {})
         evidence["coverage"] = coverage
+        evidence["payment_options"] = payment
         await self.ledger.update_case(db, case_id, options=options, evidence=evidence)
         await self.ledger.append_timeline(
             db,
@@ -503,6 +517,15 @@ class Coordinator:
             label="Insurer coverage check",
             detail=f"{coverage.get('scenario')} · cost={coverage.get('patient_cost_aed')}",
             actor="agent:insurer",
+        )
+        modes = ", ".join(f"{o.get('id')}={(o.get('payment') or {}).get('mode')}" for o in options)
+        await self.ledger.append_timeline(
+            db,
+            case_id,
+            kind="calculated",
+            label="Payment paths (cashless first)",
+            detail=f"{modes} · insurer says {payment.get('reason_code', 'n/a')}",
+            actor="agent:navigator",
         )
         out = await self.ledger.get_case(db, case_id)
         out["coverage"] = coverage  # type: ignore[index]
@@ -529,7 +552,72 @@ class Coordinator:
         )
         evidence = dict(case.get("evidence") or {})
         evidence["booked_option"] = option_id
+        path = opt.get("payment") or {}
+        evidence["payment_mode"] = path.get("mode", "cashless")
+        if path.get("mode") == "reimbursement":
+            from agents.navigator.payment import new_claim
+
+            plan = PLANS.get(case.get("plan_id") or "plan-b", PLANS["plan-b"])
+            evidence["claim"] = new_claim(opt, path, str(plan.get("name")))
+            await self.ledger.append_timeline(
+                db,
+                case_id,
+                kind="calculated",
+                label="Reimbursement claim opened",
+                detail=(
+                    f"Pay AED {path.get('patient_upfront_aed')} at visit, expect AED "
+                    f"{path.get('expected_reimbursement_aed')} back; submit within {path.get('claim_window_days')} days"
+                ),
+                actor="agent:navigator",
+            )
         await self.ledger.update_case(db, case_id, evidence=evidence)
+        return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+
+    async def update_claim(
+        self,
+        db: aiosqlite.Connection,
+        case_id: str,
+        *,
+        status: str,
+        actor: str,
+        actor_role: str,
+        note: str = "",
+    ) -> dict[str, Any]:
+        """Move the reimbursement claim task forward (patient paperwork, staff records insurer decision)."""
+        from agents.navigator.payment import advance_claim
+
+        from app.insurer import submit_claim
+
+        case = await self.ledger.get_case(db, case_id)
+        if not case:
+            raise CaseNotFound(case_id)
+        evidence = dict(case.get("evidence") or {})
+        claim = evidence.get("claim")
+        if not claim:
+            raise ValueError("no reimbursement claim on this case (booked option is cashless or self-pay)")
+        updated = advance_claim(claim, status, actor_role=actor_role)
+        if status == "submitted":
+            ack = submit_claim(
+                case_id=case_id,
+                plan_id=str(case.get("plan_id") or "plan-b"),
+                provider_id=str(claim.get("option_id")),
+                amount_aed=int(claim.get("amount_claimed_aed") or 0),
+                consent=bool(case.get("consent_insurer_query", True)),
+            )
+            updated["insurer_ack"] = ack
+        history = list(updated.get("history") or [])
+        history.append({"status": status, "actor": actor, "note": note[:300]})
+        updated["history"] = history
+        evidence["claim"] = updated
+        await self.ledger.update_case(db, case_id, evidence=evidence)
+        await self.ledger.append_timeline(
+            db,
+            case_id,
+            kind="fact",
+            label=f"Claim {status.replace('_', ' ')}",
+            detail=(updated.get("insurer_ack") or {}).get("claim_reference", "") if status == "submitted" else note[:120],
+            actor=actor,
+        )
         return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
 
     async def mark_attended(

@@ -201,6 +201,11 @@ class CloseIn(BaseModel):
     # four_eyes_ok removed — dual approval via /approvals only; extra body fields ignored
 
 
+class ClaimIn(BaseModel):
+    status: Literal["documents_ready", "submitted", "approved", "rejected", "paid"]
+    note: str = Field(default="", max_length=300)
+
+
 class OutcomeIn(BaseModel):
     outcome_ref: str = Field(max_length=200)
     outcome_note: str = Field(default="", max_length=500)
@@ -426,6 +431,33 @@ async def book(case_id: str, body: BookIn):
     try:
         return await coordinator.book(db, case_id, body.option_id)
     except (ValueError, IllegalTransition) as e:
+        raise HTTPException(400, str(e)) from e
+    finally:
+        await db.close()
+
+
+@app.post("/cases/{case_id}/claim")
+async def claim(case_id: str, body: ClaimIn, request: Request):
+    """Reimbursement (pay-and-claim) task: patient marks paperwork; staff record the insurer decision."""
+    from app.auth import role_for
+
+    persona = request.headers.get("X-Rabt-Persona") or ""
+    role = role_for(persona) or "patient"
+    db = await ledger.connect()
+    try:
+        return await coordinator.update_claim(
+            db,
+            case_id,
+            status=body.status,
+            actor=_persona(request) or "patient:unknown",
+            actor_role=role,
+            note=body.note,
+        )
+    except CaseNotFound:
+        raise HTTPException(404, "case not found") from None
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
         raise HTTPException(400, str(e)) from e
     finally:
         await db.close()

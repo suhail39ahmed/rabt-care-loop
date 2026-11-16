@@ -1,8 +1,20 @@
-"""Insurance-aware navigator — deterministic scoring + optional LLM rationale."""
+"""Insurance-aware navigator — deterministic scoring + optional LLM rationale.
+
+Each option carries a payment path (cashless at a network hospital, pay-and-claim reimbursement,
+or explicit self-pay). Cashless network options score highest; the LLM never changes the ranking.
+"""
 
 from __future__ import annotations
 
 from typing import Any
+
+from agents.navigator.payment import MODE_WEIGHT, payment_path, reimbursement_guide
+
+MODE_LABEL = {
+    "cashless": ("Cashless (network)", "بدون دفع مسبق (ضمن الشبكة)"),
+    "reimbursement": ("Pay & claim back", "ادفع ثم استرد"),
+    "self_pay": ("Self-pay", "دفع ذاتي"),
+}
 
 SPECIALTY_FOR_PATHWAY = {
     "confirmatory_test": "family_medicine",
@@ -20,37 +32,46 @@ def score_options(
     plan_network: set[str],
     providers: list[dict[str, Any]],
     language: str = "en",
+    plan: dict[str, Any] | None = None,
+    allow_self_pay: bool = False,
 ) -> list[dict[str, Any]]:
     specialty = SPECIALTY_FOR_PATHWAY.get(pathway, "family_medicine")
+    plan = plan or {}
+    plan_name = str(plan.get("name") or "your plan")
     ranked: list[dict[str, Any]] = []
     for p in providers:
         if p.get("specialty") != specialty:
             continue
         in_network = p.get("network_id") in plan_network or p.get("id") in plan_network
-        if not in_network and not p.get("self_pay_ok"):
-            continue  # exclude out-of-network unless self-pay
-        score = 0.0
-        score += 40 if in_network else 10
+        path = payment_path(plan, p, in_network, allow_self_pay=allow_self_pay)
+        if path is None:
+            continue  # out-of-network is excluded unless explicitly self-pay
+        mode = path["mode"]
+        score = MODE_WEIGHT[mode]
         score += max(0, 30 - float(p.get("distance_km", 10)))
         score += max(0, 20 - float(p.get("earliest_days", 7)))
         if language in (p.get("languages") or []):
             score += 10
-        ranked.append(
-            {
-                **p,
-                "in_network": in_network,
-                "score": round(score, 2),
-                "rationale_en": (
-                    f"{'In-network' if in_network else 'Self-pay'} · "
-                    f"{p.get('distance_km', '?')} km · earliest in {p.get('earliest_days', '?')} days"
-                ),
-                "rationale_ar": (
-                    f"{'ضمن الشبكة' if in_network else 'دفع ذاتي'} · "
-                    f"{p.get('distance_km', '?')} كم · أقرب موعد خلال {p.get('earliest_days', '?')} أيام"
-                ),
-            }
-        )
-    ranked.sort(key=lambda x: x["score"], reverse=True)
+        label_en, label_ar = MODE_LABEL[mode]
+        option = {
+            **p,
+            "in_network": in_network,
+            "payment": path,
+            "score": round(score, 2),
+            "rationale_en": (
+                f"{label_en} · pay AED {path['patient_upfront_aed']} at visit · "
+                f"{p.get('distance_km', '?')} km · earliest in {p.get('earliest_days', '?')} days"
+            ),
+            "rationale_ar": (
+                f"{label_ar} · تدفع {path['patient_upfront_aed']} درهم عند الزيارة · "
+                f"{p.get('distance_km', '?')} كم · أقرب موعد خلال {p.get('earliest_days', '?')} أيام"
+            ),
+        }
+        if mode == "reimbursement":
+            option["reimbursement_guide"] = reimbursement_guide(path, plan_name)
+        ranked.append(option)
+    # Deterministic: score, then cashless first, then provider id as a stable tie-break.
+    ranked.sort(key=lambda x: (-x["score"], -MODE_WEIGHT[x["payment"]["mode"]], str(x.get("id"))))
     return ranked[:3]
 
 
@@ -60,7 +81,9 @@ async def run(req: dict[str, Any]) -> dict[str, Any]:
     plan_network = set(inputs.get("plan_network") or [])
     providers = inputs.get("providers") or []
     language = inputs.get("language") or "en"
-    options = score_options(pathway, plan_network, providers, language)
+    plan = inputs.get("plan") or {}
+    allow_self_pay = bool(inputs.get("allow_self_pay"))
+    options = score_options(pathway, plan_network, providers, language, plan, allow_self_pay)
     if not options:
         return {
             "case_id": req["case_id"],
@@ -75,6 +98,10 @@ async def run(req: dict[str, Any]) -> dict[str, Any]:
         "step": "navigate",
         "status": "ok",
         "proposed_transition": "Referred",
-        "outputs": {"options": options, "llm_changed_ranking": False},
+        "outputs": {
+            "options": options,
+            "llm_changed_ranking": False,
+            "payment_modes": [o["payment"]["mode"] for o in options],
+        },
         "evidence_refs": [o["id"] for o in options],
     }

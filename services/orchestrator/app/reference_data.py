@@ -50,6 +50,28 @@ PROVIDERS = [
         "self_pay_ok": False,
     },
     {
+        "id": "org-gastro-3",
+        "name": "Al Reem Specialist Hospital (pay & claim)",
+        "specialty": "gastroenterology",
+        "network_id": "net-plan-b",
+        "cashless": False,
+        "fee_aed": 450,
+        "distance_km": 3.0,
+        "earliest_days": 2,
+        "languages": ["ar", "en"],
+    },
+    {
+        "id": "org-gastro-intl",
+        "name": "Saadiyat International Clinic (out-of-network)",
+        "specialty": "gastroenterology",
+        "network_id": "net-other",
+        "self_pay_ok": True,
+        "fee_aed": 600,
+        "distance_km": 6.5,
+        "earliest_days": 1,
+        "languages": ["en", "ar", "hi"],
+    },
+    {
         "id": "org-gyn-1",
         "name": "Women's Health Unit — Demo",
         "specialty": "gynaecology",
@@ -78,10 +100,30 @@ PROVIDERS = [
     },
 ]
 
+# Payment rules (fictional): cashless at network providers, plus pay-and-claim reimbursement
+# where the plan offers it. pct = share of the paid fee the insurer pays back.
 PLANS = {
-    "plan-a": {"name": "Demo Care Plan A (fictional)", "network_id": "net-plan-a"},
-    "plan-b": {"name": "Demo Care Plan B (fictional)", "network_id": "net-plan-b"},
-    "plan-c": {"name": "Demo Care Plan C (fictional)", "network_id": "net-plan-c"},
+    "plan-a": {
+        "name": "Demo Care Plan A (fictional)",
+        "network_id": "net-plan-a",
+        "cashless": True,
+        "copay_pct": 0,
+        "reimbursement": {"in_network": True, "out_of_network": True, "pct": 80, "claim_window_days": 30},
+    },
+    "plan-b": {
+        "name": "Demo Care Plan B (fictional)",
+        "network_id": "net-plan-b",
+        "cashless": True,
+        "copay_pct": 10,
+        "reimbursement": {"in_network": True, "out_of_network": False, "pct": 90, "claim_window_days": 30},
+    },
+    "plan-c": {
+        "name": "Demo Care Plan C (fictional)",
+        "network_id": "net-plan-c",
+        "cashless": True,
+        "copay_pct": 20,
+        "reimbursement": {"in_network": False, "out_of_network": False, "pct": 0, "claim_window_days": 0},
+    },
 }
 
 DEMO_PATIENTS = {

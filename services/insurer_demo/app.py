@@ -12,11 +12,12 @@ from pathlib import Path
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-_ORCH = Path(__file__).resolve().parents[1] / "orchestrator"
-if str(_ORCH) not in sys.path:
-    sys.path.insert(0, str(_ORCH))
+_SERVICES = Path(__file__).resolve().parents[1]
+for _p in (_SERVICES / "orchestrator", _SERVICES):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
-from app.insurer import SCENARIOS, agent_card, check_coverage
+from app.insurer import SCENARIOS, agent_card, check_coverage, payment_options, submit_claim
 
 app = FastAPI(title="Demo Health Insurance", version="0.1.0")
 
@@ -41,4 +42,28 @@ def exchange(body: Query):
         return SCENARIOS[body.scenario]
     return check_coverage(
         plan_id=body.plan_id, provider_id=body.provider_id, consent=body.consent_insurer_query
+    )
+
+
+@app.post("/a2a/payment-options")
+def payment(body: Query):
+    return payment_options(plan_id=body.plan_id, provider_id=body.provider_id, consent=body.consent_insurer_query)
+
+
+class ClaimIn(BaseModel):
+    case_id: str
+    plan_id: str
+    provider_id: str
+    amount_aed: int = 0
+    consent_insurer_query: bool = True
+
+
+@app.post("/a2a/claims")
+def claims(body: ClaimIn):
+    return submit_claim(
+        case_id=body.case_id,
+        plan_id=body.plan_id,
+        provider_id=body.provider_id,
+        amount_aed=body.amount_aed,
+        consent=body.consent_insurer_query,
     )

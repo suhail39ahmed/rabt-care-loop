@@ -52,6 +52,7 @@ locals {
     api_app        = "ca-${var.workload}-api-${var.environment}"
     web_app        = "ca-${var.workload}-web-${var.environment}"
     ingest_job     = "caj-${var.workload}-ingest-${var.environment}"
+    insurer_app    = "ca-${var.workload}-insurer-${var.environment}"
     id_app         = "id-${local.base}-app"
     id_ingest      = "id-${local.base}-ingest"
     openai = {

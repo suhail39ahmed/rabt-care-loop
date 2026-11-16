@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api, setApiPersona } from "@/lib/api";
-import { LiveTranslateStub } from "@/components/LiveTranslateStub";
+import { LiveTranslate } from "@/components/LiveTranslate";
 
 type Evidence = {
   attended_encounter?: boolean;
@@ -710,7 +710,7 @@ export default function BoardPage() {
                   </li>
                 ))}
               </ul>
-              <LiveTranslateStub />
+              <LiveTranslate />
             </>
           ) : null}
         </section>

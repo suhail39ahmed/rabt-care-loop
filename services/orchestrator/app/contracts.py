@@ -38,10 +38,11 @@ TOOL_SCOPES: dict[str, list[str]] = {
     "data_quality": ["read_case_bundle"],
     "triage": ["read_case_bundle"],
     "ownership": ["read_case_bundle", "update_task_state"],
-    "navigate": ["read_case_bundle", "search_slots", "list_providers"],
+    "navigate": ["read_case_bundle", "search_slots", "list_providers", "insurer_eligibility", "insurer_payment_options"],
     "comms": ["read_case_bundle", "write_communication"],
     "reassurance": ["read_case_bundle", "search_kb"],
     "econsult": ["read_case_bundle"],
     "escalation": ["update_task_state", "send_message"],
     "closure": ["read_case_bundle"],
+    "claims": ["read_case_bundle", "insurer_claims"],
 }

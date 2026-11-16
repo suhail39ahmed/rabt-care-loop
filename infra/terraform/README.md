@@ -14,6 +14,9 @@ Browser ──HTTPS──► ca-rabt-web-pilot (Next.js) ──HTTPS──► ca
               oai-rabt-pilot-aue          srch-rabt-pilot-sea        cs-rabt-pilot-aue
               (pool + circuit breaker)     (read-only KB index)        (Prompt Shields, moderation)
                  all behind private endpoints when enable_private_networking = true
+
+ca-rabt-api-pilot ──signed A2A (HMAC)──► ca-rabt-insurer-pilot (synthetic payer agent, RABT_ROLE=insurer)
+caj-rabt-ingest-pilot (hourly job, ingestion identity): KB blob container ──► embeddings ──► srch-rabt-pilot-sea
 ```
 
 > Never commit `terraform.tfvars`, `backend.hcl`, state, plans or keys (all are git-ignored).
@@ -66,6 +69,8 @@ infra/terraform/
 | Container registry | `crrabtpilotsea` |
 | Container Apps environment | `cae-rabt-pilot-sea` |
 | API / web apps | `ca-rabt-api-pilot` / `ca-rabt-web-pilot` |
+| Demo insurer agent (A2A) | `ca-rabt-insurer-pilot` (`enable_insurer_demo`) |
+| KB ingestion job | `caj-rabt-ingest-pilot` (`enable_kb_ingest_job`, `kb_ingest_cron`) |
 | Log Analytics / App Insights | `log-rabt-pilot-sea` / `appi-rabt-pilot-sea` |
 | Identities | `id-rabt-pilot-sea-app`, `id-rabt-pilot-sea-ingest` |
 | VNet | `vnet-rabt-pilot-sea` |

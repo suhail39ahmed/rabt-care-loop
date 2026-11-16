@@ -39,6 +39,10 @@ run "naming_convention" {
     error_message = "Services overridden to Australia East must carry the aue code."
   }
   assert {
+    condition     = module.hosting.insurer_app_name == "ca-rabt-insurer-pilot"
+    error_message = "The demo insurer agent must be deployed by default and follow the naming convention."
+  }
+  assert {
     condition     = output.kb_ingest_job_name == "caj-rabt-ingest-pilot"
     error_message = "The KB ingestion job must exist by default and follow the naming convention."
   }

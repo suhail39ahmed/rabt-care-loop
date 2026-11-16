@@ -30,6 +30,7 @@ env:
   API_APP: ${{ vars.API_APP_NAME || 'ca-rabt-api-pilot' }}
   WEB_APP: ${{ vars.WEB_APP_NAME || 'ca-rabt-web-pilot' }}
   INGEST_JOB: ${{ vars.INGEST_JOB_NAME || 'caj-rabt-ingest-pilot' }}
+  INSURER_APP: ${{ vars.INSURER_APP_NAME || 'ca-rabt-insurer-pilot' }}
 
 jobs:
   gate:
@@ -86,6 +87,15 @@ jobs:
           az containerapp ingress update -n "$API_APP" -g "$RESOURCE_GROUP" --target-port 8000 --only-show-errors -o none
           echo "API_URL=https://$(az containerapp show -n "$API_APP" -g "$RESOURCE_GROUP" --query properties.configuration.ingress.fqdn -o tsv)" >> "$GITHUB_ENV"
           echo "WEB_URL=https://$(az containerapp show -n "$WEB_APP" -g "$RESOURCE_GROUP" --query properties.configuration.ingress.fqdn -o tsv)" >> "$GITHUB_ENV"
+
+      - name: Roll out demo insurer agent
+        run: |
+          if az containerapp show -n "$INSURER_APP" -g "$RESOURCE_GROUP" -o none 2>/dev/null; then
+            az containerapp update -n "$INSURER_APP" -g "$RESOURCE_GROUP" --image "$REGISTRY/rabt-api:$TAG" --only-show-errors -o none
+            az containerapp ingress update -n "$INSURER_APP" -g "$RESOURCE_GROUP" --target-port 8000 --only-show-errors -o none
+          else
+            echo "::notice::No insurer app $INSURER_APP (enable_insurer_demo = false); the API uses the in-process insurer."
+          fi
 
       - name: Roll out KB ingestion job and index the approved KB
         run: |

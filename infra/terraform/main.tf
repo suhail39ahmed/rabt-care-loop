@@ -302,6 +302,12 @@ resource "random_password" "ingest_secret" {
   special = false
 }
 
+# HMAC secret for signed A2A traffic between the API and the demo insurer agent
+resource "random_password" "a2a_secret" {
+  length  = 48
+  special = false
+}
+
 module "secrets" {
   source = "./modules/keyvault_secret"
   count  = local.write_secrets ? 1 : 0
@@ -336,6 +342,7 @@ module "hosting" {
     api_app     = local.names.api_app
     web_app     = local.names.web_app
     ingest_job  = local.names.ingest_job
+    insurer_app = local.names.insurer_app
   }
   resource_group_name        = azurerm_resource_group.main.name
   location                   = var.location
@@ -392,7 +399,9 @@ module "hosting" {
       AZURE_OPENAI_API_VERSION          = var.openai_api_version
     }
   } : null
-  secret_names = concat(["rabt-ingest-secret", "appinsights-connection"], local.apim_subscription_required ? ["llm-api-key"] : [])
+  insurer           = var.enable_insurer_demo ? {} : null
+  a2a_shared_secret = random_password.a2a_secret.result
+  secret_names      = concat(["rabt-ingest-secret", "appinsights-connection"], local.apim_subscription_required ? ["llm-api-key"] : [])
   secrets = merge(
     { "rabt-ingest-secret" = random_password.ingest_secret.result, "appinsights-connection" = module.monitoring.app_insights_connection_string },
     local.apim_subscription_required ? { "llm-api-key" = module.apim.subscription_primary_key } : {}

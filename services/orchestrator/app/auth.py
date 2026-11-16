@@ -79,6 +79,8 @@ def write_role_allowed(path: str, role: str) -> bool:
     """Per-route demo role rules (#52)."""
     if path.startswith("/demo/"):
         return role in CLINICIAN_ROLES
+    if path == "/translate":
+        return True
     if path.startswith("/approvals/") and path.endswith("/decision"):
         return role in CLINICIAN_ROLES
     if "/consent/withdraw" in path:

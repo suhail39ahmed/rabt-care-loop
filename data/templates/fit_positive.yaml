@@ -10,8 +10,8 @@ en:
       correct: "More checks may be needed — not a diagnosis"
     - id: q2
       prompt: What should you do next?
-      choices: ["confirm understanding and book a follow-up", "Start chemotherapy", "Wait a year"]
-      correct: "confirm understanding and book a follow-up"
+      choices: ["Confirm understanding and book a follow-up", "Start chemotherapy", "Wait a year"]
+      correct: "Confirm understanding and book a follow-up"
 ar:
   body: >
     {first_name_token}، فحص الدم الخفي في البراز يحتاج خطوة تأكيدية.

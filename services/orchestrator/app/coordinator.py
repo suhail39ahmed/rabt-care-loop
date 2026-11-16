@@ -27,6 +27,7 @@ from app import hitl
 from app.contracts import TOOL_SCOPES, DelegationResult
 from app.ledger import Ledger
 from app.reference_data import PLANS, PROVIDERS
+from app.case_errors import CaseNotFound
 from app.state_machine import IllegalTransition, S, transition
 from app.tools import ToolScopeError, assert_tool_allowed, invoke_tool
 
@@ -235,7 +236,7 @@ class Coordinator:
         self._begin_chain(case_id)
         case = await self.ledger.get_case(db, case_id)
         if not case:
-            raise KeyError(case_id)
+            raise CaseNotFound(case_id)
         await self._apply(
             db, case_id, S(case["state"]), S.OWNED, actor, "owner accepted", {"handshake": True}
         )
@@ -246,7 +247,7 @@ class Coordinator:
     ) -> dict[str, Any]:
         case = await self.ledger.get_case(db, case_id)
         if not case:
-            raise KeyError(case_id)
+            raise CaseNotFound(case_id)
         await self._apply(
             db,
             case_id,
@@ -263,7 +264,7 @@ class Coordinator:
         self._begin_chain(case_id)
         case = await self.ledger.get_case(db, case_id)
         if not case:
-            raise KeyError(case_id)
+            raise CaseNotFound(case_id)
         if case["state"] != S.OWNED.value:
             raise IllegalTransition(f"notify from {case['state']}")
         if not case.get("consent_messaging", True):
@@ -287,7 +288,7 @@ class Coordinator:
         )
         urgency_raw = case.get("urgency") or "URGENT"
         next_by_lang = {
-            "en": "confirm understanding and book a follow-up",
+            "en": "Confirm understanding and book a follow-up",
             "ar": "تأكيد الفهم وحجز متابعة",
         }
         urgency_by_lang = {
@@ -354,7 +355,7 @@ class Coordinator:
         self._begin_chain(case_id)
         case = await self.ledger.get_case(db, case_id)
         if not case:
-            raise KeyError(case_id)
+            raise CaseNotFound(case_id)
         await self._apply(
             db, case_id, S(case["state"]), S.UNREACHABLE, "agent:comms", "unreachable", {}
         )
@@ -385,7 +386,7 @@ class Coordinator:
         self._begin_chain(case_id)
         case = await self.ledger.get_case(db, case_id)
         if not case:
-            raise KeyError(case_id)
+            raise CaseNotFound(case_id)
         questions = []
         candidates: list[list[dict[str, Any]]] = []
         for m in reversed(case["messages"]):
@@ -448,7 +449,7 @@ class Coordinator:
             self._begin_chain(case_id)
         case = await self.ledger.get_case(db, case_id)
         if not case:
-            raise KeyError(case_id)
+            raise CaseNotFound(case_id)
         plan = PLANS.get(case.get("plan_id") or "plan-b", PLANS["plan-b"])
         res_raw = await self._delegate(
             db,
@@ -487,7 +488,7 @@ class Coordinator:
     ) -> dict[str, Any]:
         case = await self.ledger.get_case(db, case_id)
         if not case:
-            raise KeyError(case_id)
+            raise CaseNotFound(case_id)
         opt = next((o for o in case.get("options") or [] if o["id"] == option_id), None)
         if not opt:
             raise ValueError("unknown option")
@@ -507,7 +508,7 @@ class Coordinator:
         """Record attendance only — outcome document is a separate step (#3)."""
         case = await self.ledger.get_case(db, case_id)
         if not case:
-            raise KeyError(case_id)
+            raise CaseNotFound(case_id)
         await self._apply(db, case_id, S(case["state"]), S.ATTENDED, "human:clinic", "attended", {})
         evidence = dict(case.get("evidence") or {})
         evidence["attended_encounter"] = True
@@ -529,7 +530,7 @@ class Coordinator:
     ) -> dict[str, Any]:
         case = await self.ledger.get_case(db, case_id)
         if not case:
-            raise KeyError(case_id)
+            raise CaseNotFound(case_id)
         evidence = dict(case.get("evidence") or {})
         evidence["outcome_document"] = True
         evidence["outcome_ref"] = outcome_ref
@@ -561,7 +562,7 @@ class Coordinator:
             self._begin_chain(case_id)
         case = await self.ledger.get_case(db, case_id)
         if not case:
-            raise KeyError(case_id)
+            raise CaseNotFound(case_id)
         current = S(case["state"])
         if current in {S.CLOSED, S.CLOSED_BY_HUMAN}:
             raise IllegalTransition(f"case already {current.value}")
@@ -718,7 +719,7 @@ class Coordinator:
         """Resume closure after two distinct non-requester approvals."""
         case = await self.ledger.get_case(db, case_id)
         if not case:
-            raise KeyError(case_id)
+            raise CaseNotFound(case_id)
         merged = dict(case.get("evidence") or {})
         if evidence:
             merged.update(evidence)
@@ -805,7 +806,7 @@ class Coordinator:
     ) -> dict[str, Any]:
         case = await self.ledger.get_case(db, case_id)
         if not case:
-            raise KeyError(case_id)
+            raise CaseNotFound(case_id)
         await self._apply(
             db, case_id, S(case["state"]), S.REF_REJECTED, "human:specialist", reason, {"reject_reason": reason}
         )
@@ -814,7 +815,7 @@ class Coordinator:
     async def withdraw_consent(self, db: aiosqlite.Connection, case_id: str) -> dict[str, Any]:
         case = await self.ledger.get_case(db, case_id)
         if not case:
-            raise KeyError(case_id)
+            raise CaseNotFound(case_id)
         await self.ledger.update_case(db, case_id, consent_messaging=0)
         if case["state"] == S.OWNED.value:
             await self._apply(
@@ -833,7 +834,7 @@ class Coordinator:
         self._begin_chain(case_id)
         case = await self.ledger.get_case(db, case_id)
         if not case:
-            raise KeyError(case_id)
+            raise CaseNotFound(case_id)
         res_raw = await self._delegate(
             db,
             case_id,
@@ -868,7 +869,7 @@ class Coordinator:
         self._begin_chain(case_id)
         case = await self.ledger.get_case(db, case_id)
         if not case:
-            raise KeyError(case_id)
+            raise CaseNotFound(case_id)
         res_raw = await self._delegate(
             db,
             case_id,
@@ -1058,7 +1059,7 @@ class Coordinator:
     ) -> dict[str, Any]:
         case = await self.ledger.get_case(db, case_id)
         if not case:
-            raise KeyError(case_id)
+            raise CaseNotFound(case_id)
         await self.stop_ladder(db, case_id)
         await self._apply(db, case_id, S(case["state"]), S.OWNED, actor, "human handled escalation", {})
         return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
@@ -1066,7 +1067,7 @@ class Coordinator:
     async def resolve_data_query(self, db: aiosqlite.Connection, case_id: str) -> dict[str, Any]:
         case = await self.ledger.get_case(db, case_id)
         if not case:
-            raise KeyError(case_id)
+            raise CaseNotFound(case_id)
         await self._apply(db, case_id, S.DATA_QUERY, S.NEW, "human:coordinator", "data fixed", {})
         return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
 

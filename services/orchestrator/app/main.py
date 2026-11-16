@@ -21,6 +21,7 @@ from app.auth import (
     role_for,
     write_role_allowed,
 )
+from app.case_errors import CaseNotFound
 from app.coordinator import Coordinator
 from app.demo_seed import seed_demo
 from app.hitl import ApprovalError, list_approvals, list_queue, mark_approved, submit_decision
@@ -119,12 +120,47 @@ async def demo_write_auth(request: Request, call_next):
     return await call_next(request)
 
 
-@app.exception_handler(KeyError)
-async def key_error_handler(_request: Request, exc: KeyError):
-    detail = str(exc.args[0]) if exc.args else "not found"
-    if detail and not detail.startswith("case"):
-        detail = f"case not found: {detail}" if detail else "case not found"
-    return JSONResponse({"detail": detail or "case not found"}, status_code=404)
+@app.exception_handler(CaseNotFound)
+async def case_not_found_handler(_request: Request, _exc: CaseNotFound):
+    return JSONResponse({"detail": "case not found"}, status_code=404)
+
+
+def _strip_teachback_correct(items: Any) -> Any:
+    if not isinstance(items, list):
+        return items
+    out = []
+    for q in items:
+        if isinstance(q, dict):
+            out.append({k: v for k, v in q.items() if k != "correct"})
+        else:
+            out.append(q)
+    return out
+
+
+def public_case_view(case: dict[str, Any]) -> dict[str, Any]:
+    """Redact teach-back answers from public GET payloads (#54)."""
+    import copy
+
+    c = copy.deepcopy(case)
+    for m in c.get("messages") or []:
+        if isinstance(m, dict):
+            if "teachback" in m:
+                m["teachback"] = _strip_teachback_correct(m["teachback"])
+            by_lang = m.get("by_lang")
+            if isinstance(by_lang, dict):
+                for loc in by_lang.values():
+                    if isinstance(loc, dict) and "teachback" in loc:
+                        loc["teachback"] = _strip_teachback_correct(loc["teachback"])
+    for p in c.get("provenance") or []:
+        if not isinstance(p, dict):
+            continue
+        ev = p.get("evidence")
+        if isinstance(ev, dict) and "teachback" in ev:
+            ev["teachback"] = _strip_teachback_correct(ev["teachback"])
+        detail = p.get("detail")
+        if isinstance(detail, dict) and "teachback" in detail:
+            detail["teachback"] = _strip_teachback_correct(detail["teachback"])
+    return c
 
 
 class ObservationIn(BaseModel):
@@ -295,7 +331,7 @@ async def get_case(case_id: str):
         case = await ledger.get_case(db, case_id)
         if not case:
             raise HTTPException(404, "case not found")
-        return case
+        return public_case_view(case)
     finally:
         await db.close()
 
@@ -416,7 +452,7 @@ async def close_case(case_id: str, request: Request, body: CloseIn | None = None
             else 400
         )
         raise HTTPException(code, msg) from e
-    except KeyError:
+    except CaseNotFound:
         raise HTTPException(404, "case not found") from None
     finally:
         await db.close()
@@ -546,17 +582,30 @@ async def approval_decision(token: str, body: DecisionIn, request: Request):
 @app.post("/webhook/fhir")
 @app.post("/webhook/fhir/{rest_of_path:path}")
 async def fhir_webhook(request: Request, rest_of_path: str = ""):
+    import json
+
     raw = await request.body()
     body: dict[str, Any] = {}
     if raw:
-        body = await request.json()
-    rtype = body.get("resourceType", "Observation")
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise HTTPException(400, "invalid JSON") from e
+        if not isinstance(parsed, dict):
+            raise HTTPException(400, "invalid JSON")
+        body = parsed
+    rtype = body.get("resourceType")
+    if not rtype:
+        raise HTTPException(400, "resourceType required")
     rid = body.get("id", "unknown")
     version = (body.get("meta") or {}).get("versionId", "1")
     key = f"{rtype}/{rid}/_history/{version}"
     if rtype != "Observation":
         return {"accepted": True, "ignored": True}
-    patient_ref = (body.get("subject") or {}).get("reference", "Patient/unknown")
+    subject = body.get("subject")
+    if not isinstance(subject, dict) or not subject.get("reference"):
+        raise HTTPException(400, "Observation.subject.reference required")
+    patient_ref = subject.get("reference", "Patient/unknown")
     patient_id = patient_ref.split("/")[-1]
     db = await ledger.connect()
     try:

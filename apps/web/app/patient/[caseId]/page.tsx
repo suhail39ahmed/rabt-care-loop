@@ -264,7 +264,10 @@ export default function PatientCasePage() {
           <button
             className="btn"
             type="button"
-            disabled={busy}
+            disabled={
+              busy ||
+              !latestMsg.teachback.every((_, i) => Boolean(answers[i]))
+            }
             onClick={() =>
               run(async () => {
                 const updated = await api<Case>(`/cases/${c.case_id}/teachback`, {

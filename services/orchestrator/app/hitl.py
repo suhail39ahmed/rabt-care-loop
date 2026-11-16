@@ -21,6 +21,12 @@ SAFE_DEFAULTS = {
 class ApprovalError(ValueError):
     """Client-facing approval rejection (maps to 4xx)."""
 
+    status_code: int = 403
+
+    def __init__(self, message: str, *, status_code: int = 403):
+        super().__init__(message)
+        self.status_code = status_code
+
 
 async def request_approval(
     db: aiosqlite.Connection,
@@ -63,12 +69,14 @@ async def submit_decision(
 ) -> dict[str, Any]:
     cur = await db.execute("SELECT * FROM approvals WHERE token = ?", (token,))
     appr = await cur.fetchone()
-    if appr is None or appr["status"] != "pending":
-        raise ApprovalError("not pending")
+    if appr is None:
+        raise ApprovalError("approval not found", status_code=404)
+    if appr["status"] != "pending":
+        raise ApprovalError("not pending", status_code=409)
 
     requested_by = appr["requested_by"]
     if requested_by and user_id == requested_by:
-        raise ApprovalError("requester cannot approve their own request")
+        raise ApprovalError("requester cannot approve their own request", status_code=403)
 
     try:
         await db.execute(
@@ -98,10 +106,9 @@ async def submit_decision(
     )
     n = (await cur.fetchone())["n"]
     if n >= appr["required"]:
-        await db.execute("UPDATE approvals SET status = 'approved' WHERE token = ?", (token,))
-        await db.commit()
+        # Do NOT mark approved yet — caller must apply the case transition first (#25).
         return {
-            "status": "approved",
+            "status": "threshold_met",
             "case_id": appr["case_id"],
             "action": appr["action"],
             "token": token,
@@ -120,11 +127,30 @@ async def submit_decision(
     }
 
 
-async def list_approvals(db: aiosqlite.Connection, *, status: str = "pending") -> list[dict[str, Any]]:
-    cur = await db.execute(
-        "SELECT * FROM approvals WHERE status = ? ORDER BY created_at ASC",
-        (status,),
+async def mark_approved(db: aiosqlite.Connection, token: str) -> None:
+    await db.execute(
+        "UPDATE approvals SET status = 'approved' WHERE token = ? AND status = 'pending'",
+        (token,),
     )
+    await db.commit()
+
+
+async def list_approvals(
+    db: aiosqlite.Connection,
+    *,
+    status: str = "pending",
+    action: str | None = None,
+) -> list[dict[str, Any]]:
+    if action:
+        cur = await db.execute(
+            "SELECT * FROM approvals WHERE status = ? AND action = ? ORDER BY created_at ASC",
+            (status, action),
+        )
+    else:
+        cur = await db.execute(
+            "SELECT * FROM approvals WHERE status = ? ORDER BY created_at ASC",
+            (status,),
+        )
     rows = await cur.fetchall()
     out: list[dict[str, Any]] = []
     for r in rows:

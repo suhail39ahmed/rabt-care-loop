@@ -35,9 +35,13 @@ async def require_persona(
     persona = x_rabt_persona or ""
     if not persona:
         raise HTTPException(401, "X-Rabt-Persona header required for write routes")
-    if persona not in DEMO_PERSONAS and not persona.startswith(("human:", "patient:")):
+    if persona not in DEMO_PERSONAS:
         raise HTTPException(403, f"unknown demo persona: {persona}")
     return persona
+
+
+def persona_allowed(persona: str | None) -> bool:
+    return bool(persona) and persona in DEMO_PERSONAS
 
 
 async def require_ingest_secret(

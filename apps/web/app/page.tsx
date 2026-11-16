@@ -45,7 +45,7 @@ export default async function HomePage() {
             Board
           </Link>
           <Link className="btn secondary" href="/admin">
-            Admin
+            KPIs
           </Link>
         </div>
       </div>
@@ -107,18 +107,12 @@ export default async function HomePage() {
           <span className="node det">Closure</span>
         </div>
         <p className="muted" style={{ margin: 0 }}>
-          Yellow = deterministic · Violet = LLM-assisted · Coral = human gate. Full map on{" "}
-          <Link href="/learn" style={{ color: "var(--cyan-deep)", fontWeight: 600 }}>
-            /learn
-          </Link>
-          .
+          Yellow = deterministic · Violet = LLM-assisted · Coral = human gate. Designed to sit alongside a
+          patient app such as Sehatna (mocked here — no affiliation implied).
         </p>
         <div className="actions">
-          <Link className="btn" href="/learn/game">
-            Play Close the Loop
-          </Link>
-          <Link className="btn secondary" href="/learn">
-            Concept notes
+          <Link className="btn" href="/board">
+            Open HITL board
           </Link>
           <Link className="btn secondary" href="/admin">
             Programme KPIs

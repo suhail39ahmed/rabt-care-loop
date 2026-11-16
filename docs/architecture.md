@@ -8,6 +8,9 @@
 | B — As-built local demo | [`docs/assets/architecture-asbuilt.png`](assets/architecture-asbuilt.png) |
 | C — Agent split | [`docs/assets/architecture-agent-split.png`](assets/architecture-agent-split.png) |
 | D — SC-01 sequence | [`docs/assets/architecture-sequence-sc01.png`](assets/architecture-sequence-sc01.png) |
+| E — Concern & expert-call loop (planned) | [`docs/assets/architecture-hitl-concern-loop.png`](assets/architecture-hitl-concern-loop.png) |
+| F — Eventing today | [`docs/assets/architecture-eventing-today.png`](assets/architecture-eventing-today.png) |
+| F — Eventing pilot (design only) | [`docs/assets/architecture-eventing-pilot.png`](assets/architecture-eventing-pilot.png) |
 
 Source `.mmd` files sit next to the PNGs if you need to re-render: `npx @mermaid-js/mermaid-cli -i file.mmd -o file.png -b white -s 2`
 
@@ -39,7 +42,7 @@ flowchart LR
     HIE["HAPI FHIR or Azure Health Data Services<br/>Malaffi stand-in"]
   end
 
-  subgraph BUS["Events"]
+  subgraph BUS["Events — pilot design, see §F"]
     WH["Webhook / Event Grid"]
     SB["Service Bus / local queue"]
   end
@@ -93,7 +96,7 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-  WEB["Next.js apps<br/>patient · board · learn · KPIs"]
+  WEB["Next.js apps<br/>patient · board · KPIs"]
   API["FastAPI orchestrator :8000"]
   LED["SQLite ledger<br/>cases · queue · approvals"]
   SM["state_machine.py"]
@@ -145,11 +148,21 @@ flowchart LR
     TB[Teach-back failure callback]
     FY[4-eyes exceptional closure]
     CN[Consent withdrawal]
+    CQ["Patient concerns queue<br/>(planned #86)"]
+    XC["Critical expert call<br/>(planned #87)"]
+  end
+
+  subgraph PLAN["LLM-assisted — planned"]
+    CA["Concern classify + summary #86"]
+    CS2["Call script / conversation guide #86 #87"]
   end
 
   DET --> HUMAN
   LLM --> HUMAN
+  PLAN -.-> HUMAN
 ```
+
+Dashed / "planned" boxes are not built yet. Full list of human inputs and who can use them: [hitl-playbook.md](hitl-playbook.md).
 
 ---
 
@@ -195,7 +208,107 @@ sequenceDiagram
 
 ---
 
-## E. File map
+## E. Human-in-the-loop: concern, reassurance and expert-call loop
+
+**Status: design, not built yet.** Tracked in #86 (concern loop), #87 (critical expert call), #85 (HITL gaps) and #52 (roles). Today only the teach-back failure callback and the critical escalation ladder exist.
+
+```mermaid
+flowchart TB
+  subgraph A["A. Concern listening & reassurance (#86)"]
+    direction TB
+    P1["Patient: teach-back fail<br/>or 'I have a concern'<br/>text / voice, any language"]
+    LEX{"Crisis / red-flag /<br/>refusal lexicon<br/>(deterministic, runs first)"}
+    CAG["Concern agent — LLM<br/>type · risk · summary<br/>patient words kept verbatim"]
+    REP["Approved reassurance +<br/>'why follow-up matters'<br/>snippets only · guardrails"]
+    CQ["Coordinator: Patient concerns queue<br/>call · send approved msg · book · assign expert"]
+    EXP["Expert / counsellor call<br/>AI-drafted conversation guide"]
+    OUT{"Call outcome"}
+    SUP["Supervisor view<br/>refusers · high risk · trends<br/>another call · GP letter · informed refusal"]
+    BK["Booking → normal loop"]
+    P1 --> LEX
+    LEX -->|"crisis / red flag / refusal"| CQ
+    LEX -->|"ok"| CAG --> REP --> CQ
+    CQ --> EXP --> OUT
+    OUT -->|"convinced_booked"| BK
+    OUT -->|"needs_another_call"| CQ
+    OUT -->|"refused"| SUP
+  end
+
+  subgraph B["B. Critical / emergency expert call (#87)"]
+    direction TB
+    CR["Triage = CRITICAL"]
+    LAD["Escalation ladder keeps running<br/>coordinator 0 → on-call 15m → lead 45m"]
+    TASK["Expert call task — now<br/>AI-drafted urgent script, no numbers<br/>approved red-flag advice (998)"]
+    CL["Clinician calls patient<br/>(never AI-only)"]
+    CO{"Outcome"}
+    GO["reached_going_now<br/>ladder stops · case Owned"]
+    REF["reached_refusing<br/>supervisor + physician now<br/>informed refusal"]
+    NR["not_reached<br/>retry 5m → alternate contact → supervisor"]
+    CR --> LAD
+    CR --> TASK --> CL --> CO
+    CO --> GO
+    CO --> REF
+    CO --> NR --> CL
+    NR -.->|"ladder not stopped"| LAD
+  end
+
+  AUD[("Ledger timeline<br/>actor · ai_generated · model<br/>time-to-reach-critical KPI")]
+  A --> AUD
+  B --> AUD
+```
+
+Rules that do not change: the LLM only classifies, summarises and drafts from approved content; it never sets urgency, never lowers deterministic urgency, never stops the ladder and never closes a case. Closure still needs evidence or two-person approval.
+
+---
+
+## F. Eventing: demo today vs pilot
+
+### Today (as built)
+
+- **No message bus.** FastAPI routes call `Coordinator` methods directly and synchronously, in the same process (`services/orchestrator/app/main.py` → `coordinator.py`).
+- **SQLite ledger is the event log.** Every transition appends to the case `timeline_json` / `provenance_json`; webhook ingest is de-duplicated through `processed_events` (`ledger.py`, `coordinator.py:103`).
+- **Time-based events** come from a background loop that calls `coordinator.tick()` every 5 s (`main.py:35-45`) to sweep HITL timeouts and advance the escalation ladder, plus `POST /demo/advance` to move the demo clock.
+- **One process on the Render free tier**, one replica (`render.yaml`); the SQLite file is in `/tmp` and is reseeded on every start.
+- **Limits:** single instance only; no guaranteed delivery if the process crashes or the free instance sleeps (in-flight work and timers are lost); no fan-out to other consumers; tick errors are swallowed.
+
+```mermaid
+flowchart LR
+  WEB["Next.js / FHIR webhook"] -->|"HTTP"| API["FastAPI route"]
+  API -->|"sync call, in-process"| CO["Coordinator"]
+  CO --> SM["state_machine.py"]
+  CO --> LED[("SQLite ledger<br/>timeline = event log<br/>processed_events = idempotency")]
+  TICK["asyncio loop every 5s<br/>+ POST /demo/advance"] -->|"tick(): sweep timeouts,<br/>advance ladder"| CO
+  CO -->|"HITL queue / approvals"| LED
+```
+
+### Pilot (planned — design only, not built)
+
+- The coordinator publishes **domain events** — `CaseCreated`, `CaseTriaged`, `CaseEscalated`, `ConcernRaised`, `ExpertCallRequired`, `CallOutcomeLogged`, `CaseClosed`, … — instead of doing all side effects inline.
+- **Azure Service Bus** (topics + sessions per case) is preferred for the clinical workflow: ordered per case, retries, dead-letter queue. **Azure Event Grid** for lightweight fan-out (e.g. analytics, FHIR change notifications).
+- **Subscribers:** patient notifications (SMS / WhatsApp / app), expert-call queue (#86, #87), Insurance Navigator (#74), analytics / KPIs, Malaffi / FHIR sync.
+- **Durable timers** replace the 5 s sweep: Service Bus scheduled messages for ladder steps and approval due times, or Azure Durable Functions timers.
+- **Transactional outbox in Postgres:** state change and outgoing event are written in one transaction; a relay publishes the outbox, so nothing is lost if the process dies between commit and publish. Consumers stay idempotent (same idempotency-key idea as `processed_events`).
+
+```mermaid
+flowchart LR
+  CO["Coordinator<br/>(N instances)"] -->|"one transaction"| PG[("Postgres<br/>cases + outbox")]
+  PG --> RELAY["Outbox relay"]
+  RELAY --> SB["Azure Service Bus topic<br/>sessions per case · retries · DLQ"]
+  RELAY -.-> EG["Azure Event Grid<br/>fan-out"]
+  SB --> N["Notifications"]
+  SB --> X["Expert-call queue"]
+  SB --> INS["Insurance Navigator"]
+  SB --> FHIR["Malaffi / FHIR sync"]
+  EG --> AN["Analytics / KPIs"]
+  TMR["Scheduled messages /<br/>Durable Functions timers"] -->|"ladder step due,<br/>approval timeout"| CO
+  SB -.->|"schedule"| TMR
+```
+
+> Pilot eventing is a design. None of Service Bus, Event Grid, Durable Functions or the outbox exists in the code today.
+
+---
+
+## G. File map
 
 | Box on diagram | Code |
 |---|---|
@@ -211,6 +324,6 @@ sequenceDiagram
 
 ---
 
-## F. What to say if asked “Are you on Foundry or LangChain?”
+## H. What to say if asked “Are you on Foundry or LangChain?”
 
 > We do **not** use LangChain. The product orchestration is our own FHIR-aligned state machine. For generative steps we use the **Microsoft Agent Framework** pointing at **Azure OpenAI hosted in Azure AI Foundry**, with Content Safety. Safety-critical steps (triage, escalation, closure) stay deterministic Python so an LLM cannot falsely close a case or miss a critical result. The local prototype runs fully on templates so judges can demo without cloud keys; Foundry lights up when Azure credentials are provided.

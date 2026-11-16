@@ -7,6 +7,9 @@
 - **Audit** — provenance trail on every transition; timeline separates fact / calculated / AI.
 - **Fairness** — KPI slices planned with small-cell suppression (benchmark path).
 - **Failure modes** — LLM/Content Safety down → static templates; never auto-close on timeout.
+- **Concerns and critical calls (planned, #86 #87)** — crisis / red-flag / refusal wording goes to a human before any AI reply; reassurance uses approved snippets only; a clinician, never AI alone, calls critical patients and logs the outcome; refusals are recorded as informed refusal, never forced closed.
+
+Who can do what, and what each human input triggers: [hitl-playbook.md](hitl-playbook.md).
 
 ## Demo authentication (limitation)
 

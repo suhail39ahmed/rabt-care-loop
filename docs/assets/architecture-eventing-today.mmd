@@ -1,0 +1,7 @@
+flowchart LR
+  WEB["Next.js / FHIR webhook"] -->|"HTTP"| API["FastAPI route"]
+  API -->|"sync call, in-process"| CO["Coordinator"]
+  CO --> SM["state_machine.py"]
+  CO --> LED[("SQLite ledger<br/>timeline = event log<br/>processed_events = idempotency")]
+  TICK["asyncio loop every 5s<br/>+ POST /demo/advance"] -->|"tick(): sweep timeouts,<br/>advance ladder"| CO
+  CO -->|"HITL queue / approvals"| LED

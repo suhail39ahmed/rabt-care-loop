@@ -1,0 +1,26 @@
+<policies>
+  <inbound>
+    <base />
+    ${auth}
+    <rate-limit-by-key calls="${calls_per_minute}" renewal-period="60" counter-key="@(context.Subscription?.Id ?? context.Request.IpAddress)" />
+    <choose>
+      <when condition="@(!context.Request.Url.Path.Contains(&quot;${index_name}&quot;) || !context.Request.Url.Path.Contains(&quot;/docs&quot;))">
+        <return-response>
+          <set-status code="403" reason="Only queries on the KB index are allowed" />
+        </return-response>
+      </when>
+    </choose>
+    <set-header name="api-key" exists-action="delete" />
+    <authentication-managed-identity resource="https://search.azure.com" />
+    <set-backend-service backend-id="${backend_id}" />
+  </inbound>
+  <backend>
+    <forward-request timeout="30" />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

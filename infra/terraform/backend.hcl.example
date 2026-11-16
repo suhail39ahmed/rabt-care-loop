@@ -1,0 +1,12 @@
+# Copy to backend.hcl (git-ignored) and run: terraform init -backend-config=backend.hcl
+# Create the state storage once (outside this stack), e.g.:
+#   az group create -n rg-rabt-tfstate -l uaenorth
+#   az storage account create -n <unique> -g rg-rabt-tfstate -l uaenorth --sku Standard_ZRS \
+#     --min-tls-version TLS1_2 --allow-blob-public-access false --allow-shared-key-access false
+#   az storage container create -n tfstate --account-name <unique> --auth-mode login
+#   az role assignment create --role "Storage Blob Data Contributor" --assignee <you> --scope <account id>
+resource_group_name  = "rg-rabt-tfstate"
+storage_account_name = "<unique-state-account>"
+container_name       = "tfstate"
+key                  = "rabt/pilot.tfstate"
+use_azuread_auth     = true

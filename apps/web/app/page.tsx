@@ -36,7 +36,7 @@ export default async function HomePage() {
               ربط · Rabt
             </div>
             <div className="muted" style={{ fontSize: "0.82rem" }}>
-              Sehatna-style care loop
+              Care-loop demo for screening follow-up
             </div>
           </div>
         </div>

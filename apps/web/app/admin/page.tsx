@@ -14,11 +14,30 @@ type Kpis = {
   note: string;
 };
 
+function humanState(s: string): string {
+  const map: Record<string, string> = {
+    PatientNotified: "Patient notified",
+    OnHoldConsent: "On hold (consent)",
+    ClosurePending: "Closure pending",
+    ClosedByHuman: "Closed by human",
+    AwaitingOwner: "Awaiting owner",
+    DataQuery: "Data query",
+    HumanCallback: "Human callback",
+    ReferralRejected: "Referral rejected",
+  };
+  if (map[s]) return map[s];
+  return s.replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
 export default function AdminPage() {
   const [k, setK] = useState<Kpis | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api<Kpis>("/kpis").then(setK).catch(console.error);
+    api<Kpis>("/kpis")
+      .then(setK)
+      .catch(console.error)
+      .finally(() => setLoading(false));
   }, []);
 
   return (
@@ -27,7 +46,9 @@ export default function AdminPage() {
         <div className="brand-mark">
           <div className="mark">ر</div>
           <div>
-            <div style={{ fontFamily: "var(--font-display)", fontWeight: 700 }}>Loop-leak view</div>
+            <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "1.05rem", margin: 0 }}>
+              Loop-leak view
+            </h1>
             <div className="muted" style={{ fontSize: "0.82rem" }}>Programme manager</div>
           </div>
         </div>
@@ -36,7 +57,9 @@ export default function AdminPage() {
         </Link>
       </div>
 
-      <div className="banner">{k?.note || "Synthetic KPIs"}</div>
+      <div className="banner">
+        {loading ? "Waking up the demo (up to ~20 s)…" : k?.note || "Synthetic KPIs"}
+      </div>
 
       <div className="kpi-row">
         <div className="kpi">
@@ -62,7 +85,7 @@ export default function AdminPage() {
         <div className="chip-row">
           {Object.entries(k?.states || {}).map(([s, n]) => (
             <span key={s} className="tag role">
-              {s}: {n}
+              {humanState(s)}: {n}
             </span>
           ))}
         </div>

@@ -35,9 +35,22 @@ ALLOWED_BUSINESS_STATES = {
 }
 
 
+def _scope(step: str, tool: str) -> None:
+    """Enforce the same tool scopes as the orchestrator (prototype)."""
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(root / "services" / "orchestrator"))
+    from app.tools import assert_tool_allowed
+
+    assert_tool_allowed(step, tool)
+
+
 @mcp.tool()
 async def read_case_bundle(task_id: str) -> dict:
     """Return minimal case fields from the Rabt orchestrator (prototype bridge)."""
+    _scope("triage", "read_case_bundle")
     async with httpx.AsyncClient(timeout=20) as c:
         r = await c.get(f"{ORCH}/cases/{task_id}")
         if r.status_code == 404:
@@ -59,6 +72,7 @@ async def read_case_bundle(task_id: str) -> dict:
 @mcp.tool()
 async def update_task_state(task_id: str, business_state: str, fhir_status: str, reason: str) -> dict:
     """Validate business state; prototype logs intent (state changes go through orchestrator API)."""
+    _scope("ownership", "update_task_state")
     if business_state not in ALLOWED_BUSINESS_STATES:
         return {"ok": False, "error": f"unknown state {business_state}"}
     return {
@@ -74,6 +88,7 @@ async def update_task_state(task_id: str, business_state: str, fhir_status: str,
 @mcp.tool()
 async def write_communication(task_id: str, patient_id: str, language: str, text: str, channel: str) -> dict:
     """Record a communication intent (console channel in prototype)."""
+    _scope("comms", "write_communication")
     print(f"[messaging:{channel}] case={task_id} patient={patient_id} lang={language}: {text[:120]}")
     return {"ok": True, "status": "completed", "channel": channel}
 

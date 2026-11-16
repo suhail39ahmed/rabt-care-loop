@@ -147,9 +147,26 @@ class DeclineIn(BaseModel):
     actor: str = "human:owner"
 
 
+@app.get("/")
+async def root():
+    return {
+        "name": "Rabt Care-Loop Orchestrator",
+        "version": app.version,
+        "docs": "/docs",
+        "healthz": "/healthz",
+    }
+
+
 @app.get("/healthz")
 async def healthz():
-    return {"ok": True, "service": "rabt-orchestrator", "guest_mode": settings.guest_mode}
+    return {
+        "ok": True,
+        "service": "rabt-orchestrator",
+        "guest_mode": settings.guest_mode,
+        "content_safety": bool(settings.content_safety_endpoint),
+        "llm": settings.llm_enabled,
+        "mcp_in_demo_path": False,
+    }
 
 
 @app.post("/demo/advance")

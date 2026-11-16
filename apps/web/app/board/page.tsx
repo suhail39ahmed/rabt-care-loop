@@ -417,7 +417,7 @@ export default function BoardPage() {
               </div>
               <h3 style={{ fontFamily: "var(--font-display)", marginTop: "1.4rem" }}>Timeline</h3>
               <p className="muted" style={{ marginTop: 0 }}>
-                Blue = recorded fact · Gold = calculated · Violet = AI text
+                Blue = recorded fact · Gold = calculated (templates/rules) · Violet = AI-generated (LLM ran)
               </p>
               <ul className="timeline">
                 {selected.timeline.map((t, i) => (

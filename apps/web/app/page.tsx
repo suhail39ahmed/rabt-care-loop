@@ -107,8 +107,8 @@ export default async function HomePage() {
           <span className="node det">Closure</span>
         </div>
         <p className="muted" style={{ margin: 0 }}>
-          Yellow = deterministic · Violet = LLM-assisted · Coral = human gate. Designed to sit alongside a
-          patient app such as Sehatna (mocked here — no affiliation implied).
+          Yellow = deterministic · Violet = AI-generated text (only when an LLM ran) · Coral = human gate.
+          Designed to sit alongside a patient app such as Sehatna (mocked here — no affiliation implied).
         </p>
         <div className="actions">
           <Link className="btn" href="/board">

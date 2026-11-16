@@ -440,7 +440,7 @@ class Coordinator:
             await self.ledger.append_timeline(
                 db,
                 case_id,
-                kind="ai",
+                kind="calculated",
                 label="Teach-back failed — retry",
                 detail=f"Attempt {fails}",
                 actor="agent:comms",
@@ -856,7 +856,7 @@ class Coordinator:
         await self.ledger.append_timeline(
             db,
             case_id,
-            kind="ai",
+            kind="ai" if res.outputs.get("ai_generated") else "calculated",
             label="Reassurance answer",
             detail=res.outputs.get("answer", "")[:200],
             actor="agent:reassurance",
@@ -884,7 +884,12 @@ class Coordinator:
             return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
         res = DelegationResult.model_validate(res_raw)
         await self.ledger.append_timeline(
-            db, case_id, kind="ai", label="E-consult packet drafted", detail="Awaiting clinician review", actor="agent:econsult"
+            db,
+            case_id,
+            kind="ai" if res.outputs.get("ai_generated") else "calculated",
+            label="E-consult packet drafted",
+            detail="Awaiting clinician review",
+            actor="agent:econsult",
         )
         out = await self.ledger.get_case(db, case_id)
         out["econsult"] = res.outputs  # type: ignore[index]
@@ -1089,7 +1094,8 @@ class Coordinator:
         case = await self.ledger.get_case(db, case_id)
         prov = case["provenance"]  # type: ignore[index]
         prov.append(rec)
-        if actor.startswith(("agent:comms", "agent:reassurance", "agent:econsult")):
+        # Violet/AI only when an LLM actually produced text (#70).
+        if evidence.get("ai_generated") or evidence.get("ai_translated"):
             kind = "ai"
         elif actor.startswith("agent:"):
             kind = "calculated"

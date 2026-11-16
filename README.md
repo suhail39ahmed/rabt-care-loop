@@ -134,7 +134,7 @@ All benchmark numbers are **simulated on synthetic data**, not real-world outcom
 | Web | Next.js 15, React 19, TypeScript; Arabic RTL | Azure Static Web Apps |
 | Rules / templates / KB | YAML rules, YAML AR/EN templates, Markdown KB | Clinician-approved versions |
 | LLM (optional) | Microsoft Agent Framework + Azure OpenAI (off by default) | Azure AI Foundry |
-| Safety | Lexicon guardrails; Azure AI Content Safety when configured | Content Safety always on |
+| Safety | Lexicon always on; Azure AI Content Safety optional (off in live demo) | See `/healthz` flags |
 | Tools | MCP Python SDK server stubs | Scoped MCP tools over AHDS FHIR |
 | Local mocks | Docker Compose: HAPI FHIR R4, PostgreSQL, Mailpit, Jaeger | Azure Health Data Services, ACS, App Insights |
 | Tests / CI | pytest, pytest-asyncio, Hypothesis; GitHub Actions | + lint, web build, security scans |
@@ -243,7 +243,7 @@ The interactive API docs are at http://localhost:8000/docs.
 
 ## Responsible AI
 
-- **No diagnosis:** a lexicon in English and Arabic blocks diagnostic claims, Azure AI Content Safety runs when configured, and every patient card carries a banner.
+- **No diagnosis:** a lexicon in English and Arabic blocks diagnostic claims; Azure AI Content Safety is optional (off in the live demo — check `GET /healthz`); every patient card carries a banner.
 - **Deterministic safety path:** triage, escalation, navigation scoring and closure never use an LLM.
 - **Human oversight:** critical queue, human triage, teach-back callback, consent pause and two-approver exceptional closure.
 - **Fail safe:** if the LLM or Content Safety is unavailable, the approved template is sent; timeouts never auto-close.
@@ -292,7 +292,7 @@ Known gaps / honesty notes:
 | Evaluation | All 10 golden cases; seeded baseline-vs-Rabt benchmark with fairness slices (simulated) |
 | Deployment | Bicep modules + `azd up` on Azure (UAE North where available): Container Apps, Static Web Apps, PostgreSQL, Key Vault, App Insights |
 | Data | Azure Health Data Services (FHIR R4) + Event Grid / Service Bus intake; Synthea cohort |
-| AI | Azure AI Foundry via Microsoft Agent Framework for comms, reassurance (AI Search RAG) and e-consult, with Content Safety always on |
+| AI | Optional Azure OpenAI rewrite for comms only; lexicon always on; Content Safety optional (see [docs/submission-claims.md](docs/submission-claims.md)) |
 | Pilot | Integrate with Malaffi (HIE) and Sehatna through FHIR; clinician sign-off of rules and templates; DoH Abu Dhabi approvals; one screening programme as a first site |
 
 ## Challenge context

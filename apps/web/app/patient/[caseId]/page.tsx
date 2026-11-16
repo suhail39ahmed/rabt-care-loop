@@ -129,9 +129,10 @@ export default function PatientCasePage() {
   };
 
   if (!c) {
+    const missing = /not found|404/i.test(err);
     return (
       <main className="shell phone-shell" dir={rtl ? "rtl" : "ltr"}>
-        {notFound ? (
+        {notFound || missing ? (
           <>
             <p>{t.missing}</p>
             <Link className="btn" href="/">
@@ -321,7 +322,7 @@ export default function PatientCasePage() {
       <section className="panel rise d4" style={{ marginTop: "0.9rem" }}>
         <h2 style={{ fontFamily: "var(--font-display)", marginTop: 0 }}>{t.ask}</h2>
         <p className="muted" style={{ marginTop: 0 }}>{t.askHint}</p>
-        <label className="muted" style={{ display: "block", marginBottom: "0.35rem", fontSize: "0.85rem" }}>
+        <label className="muted" style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.75rem" }}>
           {rtl ? "سؤالك" : "Your question"}
           <input
             value={question}
@@ -330,13 +331,12 @@ export default function PatientCasePage() {
             style={{
               display: "block",
               width: "100%",
+              marginTop: "0.35rem",
               padding: "0.8rem 0.95rem",
               borderRadius: "0.9rem",
               border: "1px solid var(--line)",
               background: "white",
               color: "var(--ink)",
-              marginTop: "0.35rem",
-              marginBottom: "0.75rem",
             }}
           />
         </label>

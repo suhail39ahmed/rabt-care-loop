@@ -1,0 +1,22 @@
+name: keep-warm
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Wake API and web
+        run: |
+          set -e
+          for url in \
+            "https://rabt-api-9oig.onrender.com/healthz" \
+            "https://rabt-web.onrender.com/"
+          do
+            echo "GET $url"
+            curl -fsS --max-time 60 "$url" >/dev/null || curl -fsS --max-time 90 "$url" >/dev/null
+          done

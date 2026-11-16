@@ -12,6 +12,14 @@ mcp = FastMCP("rabt-messaging")
 
 @mcp.tool()
 async def send_message(to: str, text: str, channel: str | None = None) -> dict:
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(root / "services" / "orchestrator"))
+    from app.tools import assert_tool_allowed
+
+    assert_tool_allowed("escalation", "send_message")
     ch = channel or CHANNEL
     if ch == "console":
         print(f"[console:{to}] {text}")

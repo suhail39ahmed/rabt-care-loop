@@ -16,6 +16,14 @@ type Evidence = {
   call_outcome?: string;
   expert_call_script?: string;
   coverage?: Record<string, unknown>;
+  payment_mode?: string;
+  claim?: {
+    status: string;
+    provider_name?: string;
+    amount_claimed_aed?: number;
+    expected_reimbursement_aed?: number;
+    insurer_ack?: { claim_reference?: string };
+  };
 };
 
 type Case = {
@@ -47,6 +55,7 @@ type Case = {
     name: string;
     score: number;
     in_network?: boolean;
+    payment?: { mode: string; patient_upfront_aed?: number; expected_reimbursement_aed?: number };
     distance_km?: number;
     earliest_slot_hours?: number;
     language_match?: boolean;
@@ -189,6 +198,11 @@ export default function BoardPage() {
       body: JSON.stringify({ outcome }),
     });
     await afterAction(id, `Call outcome: ${outcome}`);
+  };
+
+  const updateClaim = async (id: string, status: string) => {
+    await api(`/cases/${id}/claim`, { method: "POST", body: JSON.stringify({ status }) });
+    await afterAction(id, `Claim: ${status}`);
   };
 
   const attend = async (id: string) => {
@@ -466,6 +480,34 @@ export default function BoardPage() {
                   ) : null}
                 </div>
               )}
+              {selected.evidence?.claim ? (
+                <div className="panel soft" style={{ marginBottom: "0.75rem", boxShadow: "none" }}>
+                  <strong>Reimbursement claim</strong>
+                  <p className="muted" style={{ margin: "0.25rem 0" }}>
+                    {selected.evidence.claim.provider_name} · status {selected.evidence.claim.status.replace(/_/g, " ")} · claimed AED{" "}
+                    {selected.evidence.claim.amount_claimed_aed ?? "?"} · expected back AED{" "}
+                    {selected.evidence.claim.expected_reimbursement_aed ?? "?"}
+                    {selected.evidence.claim.insurer_ack?.claim_reference
+                      ? ` · ref ${selected.evidence.claim.insurer_ack.claim_reference}`
+                      : ""}
+                  </p>
+                  {selected.evidence.claim.status === "submitted" ? (
+                    <div className="actions">
+                      <button className="btn" type="button" onClick={() => updateClaim(selected.case_id, "approved")}>
+                        Insurer approved
+                      </button>
+                      <button className="btn secondary" type="button" onClick={() => updateClaim(selected.case_id, "rejected")}>
+                        Insurer rejected
+                      </button>
+                    </div>
+                  ) : null}
+                  {selected.evidence.claim.status === "approved" ? (
+                    <button className="btn" type="button" onClick={() => updateClaim(selected.case_id, "paid")}>
+                      Mark paid back
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="actions">
                 {selected.state === "AwaitingOwner" ? (
                   <button className="btn" type="button" onClick={() => accept(selected.case_id)}>
@@ -605,6 +647,7 @@ export default function BoardPage() {
                         <li key={o.id}>
                           {o.name}: score {o.score}
                           {o.in_network ? " · in-network" : ""}
+                          {o.payment ? ` · ${o.payment.mode.replace("_", "-")} (pay AED ${o.payment.patient_upfront_aed ?? "?"})` : ""}
                           {o.distance_km != null ? ` · ${o.distance_km} km` : ""}
                           {o.earliest_slot_hours != null ? ` · ${o.earliest_slot_hours}h` : ""}
                           {o.language_match ? " · language match" : ""}

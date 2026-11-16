@@ -105,7 +105,7 @@ The **Coordinator** (`services/orchestrator/app/coordinator.py`) is the supervis
 | Ownership | `services/agents/ownership/` | Deterministic | Assigns an owner who must accept or decline |
 | Escalation | `services/agents/escalation/` | Deterministic, **no LLM** | Critical ladder; patient SMS never contains values |
 | Patient Comms | `services/agents/comms/` | Approved templates; LLM optional | AR/EN message + teach-back |
-| Navigator | `services/agents/navigator/` | Deterministic scoring | Ranks providers and excludes out-of-network ones |
+| Navigator | `services/agents/navigator/` | Deterministic scoring | Ranks providers with a payment path per option: cashless at network hospitals first, pay-and-claim reimbursement when the plan offers it, out-of-network excluded unless reimbursable or explicit self-pay |
 | Reassurance | `services/agents/reassurance/` | Local approved KB | Cited, non-diagnostic answers; red flags → human |
 | E-consult | `services/agents/econsult/` | Deterministic packet | Referral / e-consult summary |
 | Closure Verifier | `services/agents/closure/` | Deterministic | Evidence gate before any closure |
@@ -263,7 +263,8 @@ Writes require `X-Rabt-Persona` (except ingest/webhook, which need `X-Rabt-Inges
 | POST | `/cases/{id}/accept` · `/decline` | persona | Ownership handshake |
 | POST | `/cases/{id}/notify` | persona | Patient message + teach-back |
 | POST | `/cases/{id}/teachback` | persona | Teach-back answers (`min_length=1`) |
-| POST | `/cases/{id}/book` | persona | Book navigator option |
+| POST | `/cases/{id}/book` | persona | Book navigator option (opens a reimbursement claim task for pay-and-claim options) |
+| POST | `/cases/{id}/claim` | persona | Move the reimbursement claim: patient `documents_ready` / `submitted`; staff `approved` / `rejected` / `paid` |
 | POST | `/cases/{id}/attend` | persona | Attendance only (not outcome) |
 | POST | `/cases/{id}/outcome` | persona | Link outcome document / encounter ref |
 | POST | `/cases/{id}/close` | persona | Evidence close or start two-person approval |

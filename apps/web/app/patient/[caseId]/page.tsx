@@ -24,7 +24,12 @@ type Case = {
   result_unit?: string;
   language?: string;
   owner_name?: string;
-  evidence?: { patient_display_name?: string; patient_display_name_ar?: string };
+  evidence?: {
+    patient_display_name?: string;
+    patient_display_name_ar?: string;
+    payment_mode?: string;
+    claim?: Claim;
+  };
   messages: Array<
     LangBundle & {
       by_lang?: Record<string, LangBundle>;
@@ -35,11 +40,36 @@ type Case = {
     name: string;
     score: number;
     in_network: boolean;
+    payment?: Payment;
+    reimbursement_guide?: { summary_en: string; summary_ar: string; steps_en: string[]; steps_ar: string[] };
     rationale_en?: string;
     rationale_ar?: string;
   }>;
   reassurance?: { answer: string; citations?: Array<{ id: string }>; hand_off_offered?: boolean };
   concern?: { intent: string; crisis?: boolean; snippet?: string };
+};
+
+type Payment = {
+  mode: "cashless" | "reimbursement" | "self_pay";
+  patient_upfront_aed: number;
+  expected_reimbursement_aed: number;
+  claim_window_days?: number | null;
+};
+
+type Claim = {
+  status: string;
+  amount_claimed_aed?: number;
+  expected_reimbursement_aed?: number;
+  claim_window_days?: number;
+  documents?: Array<{ id: string; label: string; provided: boolean }>;
+  guide?: { summary_en: string; summary_ar: string; steps_en: string[]; steps_ar: string[] };
+  insurer_ack?: { claim_reference?: string; decision_days?: number };
+};
+
+const PAY_LABEL: Record<string, [string, string]> = {
+  cashless: ["Cashless (network)", "بدون دفع مسبق (ضمن الشبكة)"],
+  reimbursement: ["Pay & claim back", "ادفع ثم استرد"],
+  self_pay: ["Self-pay", "دفع ذاتي"],
 };
 
 export default function PatientCasePage() {
@@ -140,7 +170,9 @@ export default function PatientCasePage() {
     owner: rtl ? "المسؤول عن حالتك" : "Case owner",
     teach: rtl ? "تأكيد الفهم" : "Confirm you understood",
     next: rtl ? "اختر خطوتك التالية" : "Choose your next step",
-    network: rtl ? "ضمن شبكة تأمينك فقط" : "In-network options only",
+    network: rtl
+      ? "نعرض أولاً المستشفيات ضمن الشبكة بدون دفع مسبق، ثم خيارات الدفع والاسترداد إن كانت خطتك تسمح بها"
+      : "Cashless network hospitals first; pay-and-claim options only when your plan reimburses them",
     book: rtl ? "احجز الموعد" : "Book this option",
     ask: rtl ? "رفيق الطمأنينة" : "Reassurance companion",
     askHint: rtl ? "نجيب فقط من قاعدة المعرفة المعتمدة" : "Answers only from the approved knowledge base",
@@ -341,12 +373,28 @@ export default function PatientCasePage() {
               <div key={o.id} className="panel" style={{ boxShadow: "none", background: idx === 0 ? "var(--cyan-soft)" : "white" }}>
                 <div className="chip-row" style={{ marginBottom: "0.35rem" }}>
                   {o.in_network ? <span className="tag ok">{rtl ? "ضمن الشبكة" : "In network"}</span> : null}
+                  {o.payment ? (
+                    <span className={`tag ${o.payment.mode === "cashless" ? "ok" : "calculated"}`}>
+                      {PAY_LABEL[o.payment.mode]?.[rtl ? 1 : 0] ?? o.payment.mode}
+                    </span>
+                  ) : null}
                   <span className="tag calculated">score {o.score}</span>
                 </div>
                 <strong style={{ fontFamily: "var(--font-display)" }}>{o.name}</strong>
                 <p className="muted" style={{ margin: "0.35rem 0 0.75rem" }}>
                   {rtl ? o.rationale_ar : o.rationale_en}
                 </p>
+                {o.reimbursement_guide ? (
+                  <details style={{ marginBottom: "0.75rem" }}>
+                    <summary>{rtl ? "كيف أسترد المبلغ؟" : "How do I claim the money back?"}</summary>
+                    <p className="muted">{rtl ? o.reimbursement_guide.summary_ar : o.reimbursement_guide.summary_en}</p>
+                    <ol>
+                      {(rtl ? o.reimbursement_guide.steps_ar : o.reimbursement_guide.steps_en).map((step) => (
+                        <li key={step}>{step}</li>
+                      ))}
+                    </ol>
+                  </details>
+                ) : null}
                 {c.state === "Referred" ? (
                   <button
                     className="btn"
@@ -368,6 +416,67 @@ export default function PatientCasePage() {
               </div>
             ))}
           </div>
+        </section>
+      ) : null}
+
+      {c.evidence?.claim ? (
+        <section className="panel soft rise d3" style={{ marginTop: "0.9rem" }} aria-label="Reimbursement claim">
+          <h2 style={{ fontFamily: "var(--font-display)", marginTop: 0 }}>
+            {rtl ? "مطالبة الاسترداد" : "Your reimbursement claim"}
+          </h2>
+          <p className="muted" style={{ marginTop: 0 }}>
+            {rtl ? c.evidence.claim.guide?.summary_ar : c.evidence.claim.guide?.summary_en}
+          </p>
+          <p>
+            <span className="tag calculated">{c.evidence.claim.status.replace(/_/g, " ")}</span>
+            {c.evidence.claim.insurer_ack?.claim_reference ? (
+              <span className="muted"> · {c.evidence.claim.insurer_ack.claim_reference}</span>
+            ) : null}
+          </p>
+          <ul>
+            {(c.evidence.claim.documents || []).map((d) => (
+              <li key={d.id}>
+                {d.provided ? "✓ " : "○ "}
+                {d.label}
+              </li>
+            ))}
+          </ul>
+          {c.evidence.claim.status === "not_started" || c.evidence.claim.status === "rejected" ? (
+            <button
+              className="btn"
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  const updated = await api<Case>(`/cases/${c.case_id}/claim`, {
+                    method: "POST",
+                    body: JSON.stringify({ status: "documents_ready" }),
+                  });
+                  setC(updated);
+                })
+              }
+            >
+              {rtl ? "المستندات جاهزة" : "I have all documents"}
+            </button>
+          ) : null}
+          {c.evidence.claim.status === "documents_ready" ? (
+            <button
+              className="btn"
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  const updated = await api<Case>(`/cases/${c.case_id}/claim`, {
+                    method: "POST",
+                    body: JSON.stringify({ status: "submitted" }),
+                  });
+                  setC(updated);
+                })
+              }
+            >
+              {rtl ? "أرسل المطالبة إلى شركة التأمين" : "Send claim to insurer"}
+            </button>
+          ) : null}
         </section>
       ) : null}
 

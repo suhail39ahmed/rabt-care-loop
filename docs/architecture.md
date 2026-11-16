@@ -308,6 +308,25 @@ flowchart LR
 
 ---
 
+## F2. Navigator payment paths (cashless first, then pay-and-claim)
+
+Each navigator option carries a payment path, computed by rules in `services/agents/navigator/payment.py`:
+
+| Mode | When | Patient pays at visit |
+|------|------|-----------------------|
+| `cashless` | Provider is in the plan network and bills the insurer directly | Co-pay only |
+| `reimbursement` | In-network provider that is not cashless, or an out-of-network provider that accepts self-pay **and** the plan reimburses out-of-network care | Full fee, then claims back `pct` % |
+| `self_pay` | Out-of-network, no reimbursement, and the patient explicitly opted in to self-pay | Full fee |
+
+Out-of-network options that are neither reimbursable nor an explicit self-pay opt-in are still excluded.
+Score weights are 40 / 20 / 10 for cashless / reimbursement / self-pay, plus distance, earliest slot and language.
+Ties break on payment mode, then provider ID, so the ranking is deterministic. The LLM can only write rationale text.
+
+After ranking, the coordinator asks the Demo Health Insurance agent (`payment_options` A2A skill) whether the top option is cashless or reimbursable and stores the reply in `evidence.payment_options`.
+Booking a pay-and-claim option opens a **claim task** on the case (`evidence.claim`). The task lists the documents, the claim window and the expected amount back.
+The claim moves through `not_started → documents_ready → submitted → approved | rejected → paid` (`POST /cases/{id}/claim`).
+The patient handles the paperwork steps. On `submitted` the insurer agent's `claim_submit` skill returns a reference, and staff record the insurer decision.
+
 ## G. File map
 
 | Box on diagram | Code |

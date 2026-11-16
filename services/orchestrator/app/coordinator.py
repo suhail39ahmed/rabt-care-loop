@@ -24,10 +24,10 @@ from agents.reassurance import agent as reassurance_agent
 from agents.triage import engine as triage_agent
 
 from app import hitl
+from app.case_errors import CaseNotFound
 from app.contracts import TOOL_SCOPES, DelegationResult
 from app.ledger import Ledger
 from app.reference_data import PLANS, PROVIDERS
-from app.case_errors import CaseNotFound
 from app.state_machine import IllegalTransition, S, transition
 from app.tools import ToolScopeError, assert_tool_allowed, invoke_tool
 

@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     fhir_mode: str = "memory"  # memory | hapi
     database_url: str = "sqlite+aiosqlite:///./data/rabt.db"
     channel: str = "console"
+    # Global kill switch — when false, every AI path stays on templates (#105).
+    ai_enabled: bool = False
+    llm_provider: str = "off"  # off | openai_compatible | azure
+    llm_base_url: str = ""
+    llm_api_key: str = ""
+    llm_model: str = ""
     azure_openai_endpoint: str = ""
     azure_openai_model: str = ""
     content_safety_endpoint: str = ""
@@ -31,7 +37,14 @@ class Settings(BaseSettings):
 
     @property
     def llm_enabled(self) -> bool:
-        return bool(self.azure_openai_endpoint and self.azure_openai_model)
+        if not self.ai_enabled:
+            return False
+        provider = (self.llm_provider or "off").lower()
+        if provider == "off":
+            return bool(self.azure_openai_endpoint and self.azure_openai_model)
+        model = self.llm_model or self.azure_openai_model
+        base = self.llm_base_url or self.azure_openai_endpoint
+        return bool(model and base)
 
 
 @lru_cache

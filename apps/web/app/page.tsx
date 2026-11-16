@@ -48,6 +48,9 @@ export default async function HomePage() {
           <Link className="btn secondary" href="/admin">
             KPIs
           </Link>
+          <Link className="btn secondary" href="/insurer">
+            Insurer
+          </Link>
         </div>
       </div>
 
@@ -71,35 +74,39 @@ export default async function HomePage() {
         {demo?.banner || "Synthetic data. Demo only. Shared demo — data resets on restart."}
       </div>
 
-      <section className="panel soft rise d3" style={{ marginTop: "1rem" }}>
-        <h2 style={{ fontFamily: "var(--font-display)", marginTop: 0 }}>Judge mode — 6-step tour</h2>
-        <p className="muted">One-click path through the live care loop using stable demo IDs.</p>
-        <ol style={{ margin: 0, paddingInlineStart: "1.2rem" }}>
+      <section className="panel soft rise d3" style={{ marginTop: "1rem" }} aria-labelledby="tour">
+        <h2 id="tour" style={{ fontFamily: "var(--font-display)", marginTop: 0 }}>
+          Demo tour: from result to closure
+        </h2>
+        <p className="muted">Follow one loop end to end with stable demo cases. Each step opens in this app.</p>
+        <ol className="tour">
           <li>
-            <Link href={`/patient/${demo?.cases?.gc01_fatima_hba1c || "case-gc01-fatima"}?lang=ar`}>
-              Fatima patient card (AR)
-            </Link>
+            <Link href={`/patient/${demo?.cases?.gc01_fatima_hba1c || "case-gc01-fatima"}?lang=ar`}>Result card in Arabic</Link>
+            <span className="muted"> · Fatima sees her HbA1c, &quot;not a diagnosis&quot;, and can listen to it</span>
           </li>
           <li>
-            <Link href={`/board?focus=${demo?.cases?.gc03_owner || "case-gc03-owner"}`}>
-              Accept ownership (Dr Aisha)
-            </Link>
+            <Link href={`/patient/${demo?.cases?.gc01_fatima_hba1c || "case-gc01-fatima"}?lang=en`}>Understanding (teach-back)</Link>
+            <span className="muted"> · two questions before any booking; ask the approved knowledge base</span>
           </li>
           <li>
-            <Link href={`/board?focus=${demo?.cases?.gc02_critical_bp || "case-gc02-bp"}`}>
-              Critical ladder + expert call
-            </Link>
+            <Link href={`/patient/${demo?.cases?.gc05_fit || "case-gc05-fit"}?lang=en`}>Navigator: cashless or pay-and-claim</Link>
+            <span className="muted"> · Ravi&apos;s options, cashless network first, with how to claim money back</span>
           </li>
           <li>
-            <Link href="/board">HITL queue &amp; two-person close</Link>
+            <Link href={`/patient/${demo?.cases?.gc10_closure || "case-gc10-closure"}?lang=en`}>Booking</Link>
+            <span className="muted"> · Omar&apos;s appointment and what he pays at the clinic</span>
           </li>
           <li>
-            <Link href="/admin">Impact metrics &amp; equity</Link>
+            <Link href={`/board?focus=${demo?.cases?.gc02_critical_bp || "case-gc02-bp"}`}>Board: owner, critical ladder, two-person close</Link>
+            <span className="muted"> · humans on every safety gate; closure needs evidence</span>
           </li>
           <li>
-            <Link href={`/board?focus=${demo?.cases?.gc01_fatima_hba1c || "case-gc01-fatima"}`}>
-              Why? panel + evidence pack
-            </Link>
+            <Link href="/insurer">Insurer agent (A2A)</Link>
+            <span className="muted"> · signed exchanges, untrusted replies checked</span>
+          </li>
+          <li>
+            <Link href="/admin">Impact metrics and equity</Link>
+            <span className="muted"> · false closures, critical recall, fairness slices</span>
           </li>
         </ol>
       </section>

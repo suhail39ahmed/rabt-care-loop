@@ -180,3 +180,10 @@ def test_claim_route_open_to_patient_persona():
 
     assert write_role_allowed("/cases/c1/claim", "patient")
     assert write_role_allowed("/cases/c1/claim", "coordinator")
+
+
+def test_rationale_pluralises_days_in_both_languages():
+    from agents.navigator.scoring import _days_ar, _days_en
+
+    assert _days_en(1) == "1 day" and _days_en(3) == "3 days"
+    assert _days_ar(1) == "يوم واحد" and _days_ar(2) == "يومين" and _days_ar(3) == "3 أيام" and _days_ar(14) == "14 يومًا"

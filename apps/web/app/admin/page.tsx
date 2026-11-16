@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { AiPanel } from "@/components/AiPanel";
+import { KbReview } from "@/components/KbReview";
 
 type Kpis = {
   total_cases: number;
@@ -63,9 +65,14 @@ export default function AdminPage() {
             <div className="muted" style={{ fontSize: "0.82rem" }}>Programme manager</div>
           </div>
         </div>
-        <Link className="btn secondary" href="/board">
-          Board
-        </Link>
+        <div className="actions" style={{ marginTop: 0 }}>
+          <Link className="btn secondary" href="/board">
+            Board
+          </Link>
+          <Link className="btn secondary" href="/insurer">
+            Insurer
+          </Link>
+        </div>
       </div>
 
       <div className="banner">
@@ -141,6 +148,19 @@ export default function AdminPage() {
             ))}
           </tbody>
         </table>
+      </section>
+      <section className="panel soft" style={{ marginTop: "1rem" }} aria-labelledby="ai-title">
+        <h2 id="ai-title" style={{ fontFamily: "var(--font-display)", marginTop: 0 }}>AI layer</h2>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          Kill switch, safety services, small/strong routing, reviewed prompts, token budget and cache, from this API
+          replica. Counts only, no patient text.
+        </p>
+        <AiPanel />
+      </section>
+
+      <section className="panel soft" style={{ marginTop: "1rem" }} aria-labelledby="kb-title">
+        <h2 id="kb-title" style={{ fontFamily: "var(--font-display)", marginTop: 0 }}>Knowledge base review</h2>
+        <KbReview />
       </section>
     </main>
   );

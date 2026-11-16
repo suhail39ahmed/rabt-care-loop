@@ -1243,13 +1243,13 @@ class Coordinator:
         self, db: aiosqlite.Connection, case_id: str, text: str, *, language: str | None = None
     ) -> dict[str, Any]:
         """Patient concern → crisis check → approved snippet + queue (#86, #95)."""
-        from agents.intent.classify import classify_concern
+        from agents.intent.classify import classify_concern_ai
 
         case = await self.ledger.get_case(db, case_id)
         if not case:
             raise CaseNotFound(case_id)
         lang = language or case.get("language") or "en"
-        classified = classify_concern(text, language=lang)
+        classified = await classify_concern_ai(text, language=lang)
         await self.ledger.append_timeline(
             db,
             case_id,

@@ -34,34 +34,31 @@ def has_red_flag(text: str) -> bool:
 
 
 def scrub_pii(text: str, tokens: dict[str, str] | None = None) -> str:
-    out = text
-    for real, token in (tokens or {}).items():
-        out = out.replace(real, token)
-    out = re.sub(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b", "[PHONE]", out)
-    return out
+    """Scrub PII before text leaves Rabt (see agents.common.pii for the full list)."""
+    from agents.common.pii import scrub
+
+    return scrub(text, tokens).text
 
 
 def content_safe(text: str, max_sev: int | None = None) -> bool:
-    """Return True if text is safe. Uses Azure Content Safety when configured; else lexicon."""
+    """True if text is safe for a patient.
+
+    Lexicon first (no diagnosis, no red flags), then Azure AI Content Safety text:analyze when
+    CONTENT_SAFETY_ENDPOINT is set. Fails closed: if the service errors, the caller uses the template.
+    """
     if not no_diagnosis(text):
         return False
     if has_red_flag(text):
         return False
-    endpoint = os.environ.get("CONTENT_SAFETY_ENDPOINT", "").strip()
-    if not endpoint:
-        return True
-    try:
-        from azure.ai.contentsafety import ContentSafetyClient
-        from azure.ai.contentsafety.models import AnalyzeTextOptions
-        from azure.identity import DefaultAzureCredential
+    from agents.common import content_safety
 
-        max_sev = max_sev if max_sev is not None else int(os.environ.get("CS_MAX_SEVERITY", "2"))
-        client = ContentSafetyClient(endpoint, DefaultAzureCredential())
-        res = client.analyze_text(AnalyzeTextOptions(text=text))
-        return all((c.severity or 0) <= max_sev for c in res.categories_analysis)
-    except Exception:
-        # Fail closed for LLM path: caller should fall back to template
+    if not content_safety.configured():
+        return True
+    limit = max_sev if max_sev is not None else int(os.environ.get("CS_MAX_SEVERITY", "2"))
+    verdict = content_safety.analyze_text(text)
+    if verdict is None:
         return False
+    return verdict["max_severity"] <= limit
 
 
 def grounded_numbers(message: str, allowed: Iterable[str | float | int]) -> bool:

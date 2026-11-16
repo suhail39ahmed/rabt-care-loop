@@ -450,3 +450,20 @@ variable "web_min_replicas" {
   type        = number
   default     = 1
 }
+
+variable "llm_daily_token_budget" {
+  description = "Daily token budget enforced by the API before each LLM call (prompt + completion, per replica). The APIM token limit is the hard per-minute cap."
+  type        = number
+  default     = 200000
+
+  validation {
+    condition     = var.llm_daily_token_budget >= 1000
+    error_message = "llm_daily_token_budget must be at least 1000."
+  }
+}
+
+variable "llm_router_escalate_chars" {
+  description = "Small-model tasks escalate to the strong deployment when their input is longer than this many characters."
+  type        = number
+  default     = 6000
+}

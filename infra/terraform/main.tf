@@ -352,6 +352,10 @@ module "hosting" {
       LLM_PROVIDER                      = "azure"
       LLM_BASE_URL                      = module.apim.gateway_url
       LLM_MODEL                         = local.deployments_by_role.small[0]
+      LLM_MODEL_SMALL                   = local.deployments_by_role.small[0]
+      LLM_MODEL_STRONG                  = local.deployments_by_role.strong[0]
+      LLM_DAILY_TOKEN_BUDGET            = tostring(var.llm_daily_token_budget)
+      LLM_ROUTER_ESCALATE_CHARS         = tostring(var.llm_router_escalate_chars)
       AZURE_OPENAI_API_VERSION          = var.openai_api_version
       AZURE_OPENAI_MODEL_STRONG         = local.deployments_by_role.strong[0]
       AZURE_OPENAI_EMBEDDING_DEPLOYMENT = local.embedding_deployment
@@ -363,16 +367,16 @@ module "hosting" {
       OTEL_SERVICE_NAME                 = "rabt-orchestrator"
     }
     secret_env = merge(
-      { RABT_INGEST_SECRET = "rabt-ingest-secret" },
+      { RABT_INGEST_SECRET = "rabt-ingest-secret", APPLICATIONINSIGHTS_CONNECTION_STRING = "appinsights-connection" },
       local.apim_subscription_required ? { LLM_API_KEY = "llm-api-key" } : {}
     )
   }
   web = {
     min_replicas = var.web_min_replicas
   }
-  secret_names = concat(["rabt-ingest-secret"], local.apim_subscription_required ? ["llm-api-key"] : [])
+  secret_names = concat(["rabt-ingest-secret", "appinsights-connection"], local.apim_subscription_required ? ["llm-api-key"] : [])
   secrets = merge(
-    { "rabt-ingest-secret" = random_password.ingest_secret.result },
+    { "rabt-ingest-secret" = random_password.ingest_secret.result, "appinsights-connection" = module.monitoring.app_insights_connection_string },
     local.apim_subscription_required ? { "llm-api-key" = module.apim.subscription_primary_key } : {}
   )
   tags = local.tags

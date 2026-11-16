@@ -121,6 +121,11 @@ output "web_app_name" {
   value       = module.hosting.web_app_name
 }
 
+output "kb_ingest_job_name" {
+  description = "Start a KB re-index on demand: az containerapp job start -n <this> -g <resource group>."
+  value       = module.hosting.ingest_job_name
+}
+
 output "api_url" {
   description = "Public API URL."
   value       = module.hosting.api_url

@@ -8,6 +8,7 @@ COPY pyproject.toml uv.lock README.md ./
 COPY services ./services
 COPY data ./data
 COPY benchmark ./benchmark
+COPY scripts ./scripts
 
 RUN uv sync --frozen --no-dev --extra azure
 
@@ -18,4 +19,5 @@ ENV PORT=8000
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "uv run uvicorn app.main:app --app-dir services/orchestrator --host 0.0.0.0 --port ${PORT:-8000}"]
+# RABT_ROLE=api (default) | ingest | insurer, see scripts/entrypoint.sh
+CMD ["sh", "scripts/entrypoint.sh"]

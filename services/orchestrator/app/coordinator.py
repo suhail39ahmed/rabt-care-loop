@@ -985,6 +985,18 @@ class Coordinator:
             await self._apply(
                 db, case_id, S.NOTIFIED, S.HUMAN_CALLBACK, "agent:reassurance", "red flag", res.outputs
             )
+        if res.outputs.get("gap"):
+            # Learning loop: unanswered question -> coordinator drafts a KB entry -> clinician approves.
+            from agents.common.pii import scrub
+
+            await hitl.enqueue(
+                db,
+                case_id,
+                "kb_gap",
+                "Patient question not covered by the approved FAQ",
+                urgency="ROUTINE",
+                detail=scrub(question).text[:200],
+            )
         out = await self.ledger.get_case(db, case_id)
         out["reassurance"] = res.outputs  # type: ignore[index]
         return out  # type: ignore[return-value]

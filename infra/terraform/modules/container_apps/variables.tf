@@ -5,6 +5,7 @@ variable "names" {
     environment = string
     api_app     = string
     web_app     = string
+    ingest_job  = optional(string)
   })
 }
 
@@ -102,4 +103,25 @@ variable "bootstrap_image" {
   description = "Public placeholder image used until the deploy workflow pushes the real images (it listens on port 80)."
   type        = string
   default     = "mcr.microsoft.com/k8se/quickstart:latest"
+}
+
+variable "ingest_job" {
+  description = <<-EOT
+    Optional KB ingestion job (Container Apps Job, schedule trigger) that runs the API image with
+    RABT_ROLE=ingest under the ingestion managed identity. null = no job.
+  EOT
+  type = object({
+    identity_id           = string
+    identity_principal_id = string
+    identity_client_id    = string
+    cron                  = optional(string, "15 * * * *")
+    env                   = optional(map(string), {})
+  })
+  default = null
+}
+
+variable "job_bootstrap_image" {
+  description = "Placeholder image for the ingestion job until the deploy workflow sets the real one (runs and exits)."
+  type        = string
+  default     = "mcr.microsoft.com/k8se/quickstart-jobs:latest"
 }

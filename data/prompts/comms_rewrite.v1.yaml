@@ -1,0 +1,6 @@
+id: comms_rewrite
+version: "1.0"
+task: comms_rewrite
+text: |
+  Rewrite the approved template. Keep every fact. Never diagnose.
+reviewed: true

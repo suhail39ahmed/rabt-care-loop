@@ -25,8 +25,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'rg-rabt-pilot-uaen' }}
-  ACR_NAME: ${{ vars.ACR_NAME || 'crrabtpilotuaen' }}
+  RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'rg-rabt-pilot-sea' }}
+  ACR_NAME: ${{ vars.ACR_NAME || 'crrabtpilotsea' }}
   API_APP: ${{ vars.API_APP_NAME || 'ca-rabt-api-pilot' }}
   WEB_APP: ${{ vars.WEB_APP_NAME || 'ca-rabt-web-pilot' }}
 

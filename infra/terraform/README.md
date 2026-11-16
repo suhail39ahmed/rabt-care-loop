@@ -7,11 +7,11 @@ GitHub Actions runs it (`.github/workflows/infra.yml`) and deploys the app image
 Browser ──HTTPS──► ca-rabt-web-pilot (Next.js) ──HTTPS──► ca-rabt-api-pilot (FastAPI)
                                                                  │ api-key (Container Apps secret)
                                                                  ▼
-                                          apim-rabt-pilot-uaen (AI gateway, External VNet mode)
+                                          apim-rabt-pilot-sea (AI gateway, External VNet mode)
                                                                  │ managed identity, no service keys
                          ┌───────────────────────────┬───────────┴──────────────┐
                          ▼                           ▼                          ▼
-              oai-rabt-pilot-uaen          srch-rabt-pilot-uaen        cs-rabt-pilot-uaen
+              oai-rabt-pilot-aue          srch-rabt-pilot-sea        cs-rabt-pilot-aue
               (pool + circuit breaker)     (read-only KB index)        (Prompt Shields, moderation)
                  all behind private endpoints when enable_private_networking = true
 ```
@@ -56,21 +56,21 @@ infra/terraform/
 
 | Resource | Name |
 |---|---|
-| Resource group | `rg-rabt-pilot-uaen` |
-| API Management | `apim-rabt-pilot-uaen` |
-| Azure OpenAI | `oai-rabt-pilot-uaen` (failover account: `oai-rabt-pilot-<region>-2`) |
-| AI Search | `srch-rabt-pilot-uaen` |
-| Content Safety | `cs-rabt-pilot-uaen` |
-| Key Vault | `kv-rabt-pilot-uaen` |
-| Storage (KB docs) | `strabtpilotuaenkb` |
-| Container registry | `crrabtpilotuaen` |
-| Container Apps environment | `cae-rabt-pilot-uaen` |
+| Resource group | `rg-rabt-pilot-sea` |
+| API Management | `apim-rabt-pilot-sea` |
+| Azure OpenAI | `oai-rabt-pilot-aue` (failover account: `oai-rabt-pilot-<region>-2`) |
+| AI Search | `srch-rabt-pilot-sea` |
+| Content Safety | `cs-rabt-pilot-aue` |
+| Key Vault | `kv-rabt-pilot-sea` |
+| Storage (KB docs) | `strabtpilotseakb` |
+| Container registry | `crrabtpilotsea` |
+| Container Apps environment | `cae-rabt-pilot-sea` |
 | API / web apps | `ca-rabt-api-pilot` / `ca-rabt-web-pilot` |
-| Log Analytics / App Insights | `log-rabt-pilot-uaen` / `appi-rabt-pilot-uaen` |
-| Identities | `id-rabt-pilot-uaen-app`, `id-rabt-pilot-uaen-ingest` |
-| VNet | `vnet-rabt-pilot-uaen` |
-| Budget / lock | `budget-rabt-pilot-uaen` / `lock-rabt-pilot-uaen` |
-| **State (created by hand)** | `rg-rabt-tfstate-uaen`, storage `strabttfstateuaen`, container `tfstate`, key `rabt/pilot.tfstate` |
+| Log Analytics / App Insights | `log-rabt-pilot-sea` / `appi-rabt-pilot-sea` |
+| Identities | `id-rabt-pilot-sea-app`, `id-rabt-pilot-sea-ingest` |
+| VNet | `vnet-rabt-pilot-sea` |
+| Budget / lock | `budget-rabt-pilot-sea` / `lock-rabt-pilot-sea` |
+| **State (created by hand)** | `rg-rabt-tfstate-sea`, storage `strabttfstatesea`, container `tfstate`, key `rabt/pilot.tfstate` |
 
 APIM, Key Vault, Storage, AI Search, Azure OpenAI and ACR names are global. If one is taken, set `name_suffix = "01"` (it is appended to those names only).
 
@@ -114,7 +114,7 @@ APIM, Key Vault, Storage, AI Search, Azure OpenAI and ACR names are global. If o
 
 Three things exist outside this stack, because Terraform needs them before it can run:
 
-1. **State storage**: `rg-rabt-tfstate-uaen`, storage account `strabttfstateuaen` (Standard_ZRS, TLS 1.2, no public blob access, shared keys off) and container `tfstate`. Commands are in `backend.hcl.example`.
+1. **State storage**: `rg-rabt-tfstate-sea`, storage account `strabttfstatesea` (Standard_ZRS, TLS 1.2, no public blob access, shared keys off) and container `tfstate`. Commands are in `backend.hcl.example`.
 2. **A GitHub OIDC identity**: an Entra app registration with two federated credentials for this repo, `pull_request` (plan) and `environment:pilot` (apply / deploy).
    - On the subscription it needs Contributor and Role Based Access Control Administrator, because the stack creates role assignments.
    - On the state account it needs Storage Blob Data Contributor.
@@ -167,7 +167,22 @@ Notes:
 
 ## Region, model availability and cost
 
-- The default region is **`uaenorth`**, and `allowed_locations` enforces an allowlist. Check model, SKU and quota availability before you apply (`az cognitiveservices model list -l uaenorth -o table`, `az cognitiveservices usage list -l uaenorth -o table`). Move a single service with `location_overrides`. Anything outside the UAE means prompts are processed outside the UAE; Rabt only sends synthetic, PII-scrubbed text today.
+- **Regions:** primary **`southeastasia` (Singapore)**, fallback **`australiaeast`**. `allowed_locations` only allows these two, and the guardrail fails the plan otherwise. Checked against Microsoft Learn on 16 Nov 2026:
+
+| Service | Southeast Asia | Australia East | Placed in | Source |
+|---|---|---|---|---|
+| gpt-4.1-mini (2025-04-14), Standard (regional) | no | yes | Australia East | [model region availability](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure-region-availability) |
+| text-embedding-3-small (1), Standard (regional) | no | yes | Australia East | same |
+| gpt-4.1 (2025-04-14), Standard (regional) | no | no (Global/Provisioned only in APAC) | strong tier uses **gpt-4o (2024-11-20)** Standard in Australia East | same |
+| Content Safety text moderation + Prompt Shields (standalone resource) | no | yes | Australia East | [Content Safety region availability](https://learn.microsoft.com/en-us/azure/ai-services/content-safety/region-availability) |
+| AI Search (Basic, semantic ranker) | yes | yes | Southeast Asia | [AI Search region support](https://learn.microsoft.com/en-us/azure/search/search-region-support) |
+| APIM Developer, Container Apps, Key Vault, Storage, ACR, Log Analytics | yes | yes | Southeast Asia | [products by region](https://azure.microsoft.com/explore/global-infrastructure/products-by-region/) |
+
+  - **Data processing is honest:** prompts and embeddings are processed in **Australia** (Azure OpenAI, Content Safety). Everything else is in **Singapore**.
+  - Nothing is claimed to stay in the UAE. Rabt only sends synthetic, PII-scrubbed text to the models.
+  - To use gpt-4.1 as the strong model, set its `sku_name = "GlobalStandard"`. Microsoft may then process prompts in any region, so the README and consent text must say that.
+  - Check quota before you apply: `az cognitiveservices usage list -l australiaeast -o table`.
+  - Model retirement: gpt-4.1-mini and gpt-4o (2024-11-20) retire on 14 Apr 2027.
 - Deployment type: `Standard` processes in-region. `DataZoneStandard` stays within a data zone. `GlobalStandard` may process in any region.
 - Rough monthly cost with the pilot defaults: APIM Developer ~US$50, AI Search Basic ~US$75, private endpoints ~US$40, Container Apps (two small always-on replicas) ~US$30–40, ACR Basic ~US$5, plus per-token AI usage and log ingestion. Setting `enable_private_networking = false` with `apim_sku_name = "BasicV2_1"` drops the endpoints but costs ~US$150 for APIM.
 - The budget (`budget_amount`, default 100) emails at 50/80/100% actual and 100% forecast. **It alerts; it does not stop spend.**
@@ -194,4 +209,4 @@ terraform destroy -var-file=environments/pilot.tfvars
 - Remove the lock first if `enable_resource_lock = true`.
 - Key Vault, Cognitive Services accounts and APIM are **soft-deleted**. Re-applying with the same names recovers them. To free the names, purge AOAI/Content Safety and APIM manually; the Key Vault can't be purged until its 90-day retention ends.
 - Defender plans are subscription-wide, so `destroy` sets them back to Free for the whole subscription.
-- The state storage (`rg-rabt-tfstate-uaen`) isn't managed here.
+- The state storage (`rg-rabt-tfstate-sea`) isn't managed here.

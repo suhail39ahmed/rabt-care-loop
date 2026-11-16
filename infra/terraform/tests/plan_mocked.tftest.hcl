@@ -23,20 +23,24 @@ run "naming_convention" {
   command = plan
 
   assert {
-    condition     = azurerm_resource_group.main.name == "rg-rabt-pilot-uaen"
+    condition     = azurerm_resource_group.main.name == "rg-rabt-pilot-sea"
     error_message = "Resource group must follow rg-<workload>-<env>-<region>."
   }
   assert {
-    condition     = output.names.apim == "apim-rabt-pilot-uaen" && output.names.key_vault == "kv-rabt-pilot-uaen"
+    condition     = output.names.apim == "apim-rabt-pilot-sea" && output.names.key_vault == "kv-rabt-pilot-sea"
     error_message = "APIM / Key Vault names must follow the convention."
   }
   assert {
-    condition     = output.names.storage_kb == "strabtpilotuaenkb" && output.names.registry == "crrabtpilotuaen"
+    condition     = output.names.storage_kb == "strabtpilotseakb" && output.names.registry == "crrabtpilotsea"
     error_message = "Hyphen-free names must follow the convention."
   }
   assert {
-    condition     = output.names.openai["primary"] == "oai-rabt-pilot-uaen"
-    error_message = "Azure OpenAI name must follow the convention."
+    condition     = output.names.openai["primary"] == "oai-rabt-pilot-aue" && output.names.content_safety == "cs-rabt-pilot-aue"
+    error_message = "Services overridden to Australia East must carry the aue code."
+  }
+  assert {
+    condition     = azurerm_resource_group.main.location == "southeastasia"
+    error_message = "Primary region must be Southeast Asia."
   }
 }
 
@@ -76,7 +80,7 @@ run "public_with_cache_and_failover" {
     enable_private_networking = false
     apim_sku_name             = "BasicV2_1"
     enable_semantic_cache     = true
-    openai_secondary_location = "swedencentral"
+    openai_secondary_location = "southeastasia"
     apim_auth_mode            = "both"
     apim_jwt_audience         = "api://rabt"
     name_suffix               = "01"
@@ -87,7 +91,7 @@ run "public_with_cache_and_failover" {
     error_message = "No network resources expected when private networking is off."
   }
   assert {
-    condition     = output.names.openai["secondary"] == "oai-rabt-pilot-swc-2-01" && endswith(output.names.apim, "-uaen-01")
+    condition     = output.names.openai["secondary"] == "oai-rabt-pilot-sea-2-01" && endswith(output.names.apim, "-sea-01")
     error_message = "Secondary account and suffix must follow the convention."
   }
   assert {
@@ -110,7 +114,7 @@ run "rejects_region_outside_allowlist" {
   command = plan
 
   variables {
-    location_overrides = { openai = "westus" }
+    location_overrides = { openai = "uaenorth" }
   }
 
   expect_failures = [terraform_data.guardrails]

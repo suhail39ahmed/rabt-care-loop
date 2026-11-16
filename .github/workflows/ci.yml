@@ -5,11 +5,21 @@ on:
     branches: [main, master]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v4
         with:
           python-version: "3.12"
@@ -20,15 +30,15 @@ jobs:
           PYTHONPATH: services/orchestrator:services:.
       - run: uv run python benchmark/run_bench.py --seed 42
       - name: pip-audit
-        run: uv pip install pip-audit && uv run pip-audit || true
+        run: uv pip install pip-audit && uv run pip-audit
       - name: gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
 
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: apps/web
@@ -40,13 +50,24 @@ jobs:
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - run: npm ci --legacy-peer-deps
-      - run: npm audit --audit-level=high || true
+      - run: npm audit --audit-level=high
       - run: npm run build
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
 
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image
+        run: docker build -f services/orchestrator/Dockerfile .
+      - name: Build web image
+        run: docker build -f apps/web/Dockerfile apps/web
+
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [test, web]
     steps:
       - uses: actions/checkout@v4
@@ -70,14 +91,24 @@ jobs:
       - name: Start API
         run: |
           uv run uvicorn app.main:app --app-dir services/orchestrator --host 127.0.0.1 --port 8000 &
-          sleep 8
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8000/healthz && exit 0
+            sleep 2
+          done
+          echo "API failed to become healthy" >&2
+          exit 1
         env:
           PYTHONPATH: services/orchestrator:services:.
           RABT_DB: /tmp/rabt-e2e.db
       - name: Start web
         run: |
           npm run start -- --hostname 127.0.0.1 --port 3000 &
-          sleep 5
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:3000/ >/dev/null && exit 0
+            sleep 2
+          done
+          echo "Web failed to become ready" >&2
+          exit 1
         working-directory: apps/web
         env:
           NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
@@ -85,3 +116,4 @@ jobs:
         working-directory: apps/web
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
+          NEXT_PUBLIC_API_URL: http://127.0.0.1:8000

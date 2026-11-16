@@ -73,9 +73,24 @@ export default function PatientCasePage() {
   };
 
   if (!c) {
+    const missing = /not found|404/i.test(err);
     return (
       <main className="shell phone-shell" dir={rtl ? "rtl" : "ltr"}>
-        <p className="muted">{err || (rtl ? "جاري التحميل…" : "Loading…")}</p>
+        {missing ? (
+          <>
+            <p>{rtl ? "الحالة غير موجودة أو أُعيد ضبط العرض" : "Case not found or demo was reset"}</p>
+            <Link className="btn" href="/">
+              {t.back}
+            </Link>
+          </>
+        ) : (
+          <p className="muted">
+            {err ||
+              (rtl
+                ? "إيقاظ العرض التجريبي (حتى ~20 ثانية)…"
+                : "Waking up the demo (up to ~20 s)…")}
+          </p>
+        )}
       </main>
     );
   }
@@ -109,7 +124,7 @@ export default function PatientCasePage() {
         </Link>
       </div>
 
-      <div className="banner rise d2">{latestMsg?.banner || t.notDx}</div>
+      <div className="banner rise d2">{t.notDx}</div>
       {err ? <div className="banner">{err}</div> : null}
 
       <section className="panel result-hero rise d2">
@@ -233,19 +248,24 @@ export default function PatientCasePage() {
       <section className="panel rise d4" style={{ marginTop: "0.9rem" }}>
         <h2 style={{ fontFamily: "var(--font-display)", marginTop: 0 }}>{t.ask}</h2>
         <p className="muted" style={{ marginTop: 0 }}>{t.askHint}</p>
-        <input
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          style={{
-            width: "100%",
-            padding: "0.8rem 0.95rem",
-            borderRadius: "0.9rem",
-            border: "1px solid var(--line)",
-            background: "white",
-            color: "var(--ink)",
-            marginBottom: "0.75rem",
-          }}
-        />
+        <label className="muted" style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.75rem" }}>
+          {rtl ? "سؤالك" : "Your question"}
+          <input
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            aria-label={rtl ? "سؤالك" : "Your question"}
+            style={{
+              display: "block",
+              width: "100%",
+              marginTop: "0.35rem",
+              padding: "0.8rem 0.95rem",
+              borderRadius: "0.9rem",
+              border: "1px solid var(--line)",
+              background: "white",
+              color: "var(--ink)",
+            }}
+          />
+        </label>
         <div className="actions" style={{ marginTop: 0 }}>
           <button
             className="btn"

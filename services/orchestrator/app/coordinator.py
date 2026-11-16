@@ -28,6 +28,7 @@ from app.contracts import TOOL_SCOPES, DelegationResult
 from app.ledger import Ledger
 from app.reference_data import PLANS, PROVIDERS
 from app.state_machine import IllegalTransition, S, transition
+from app.tools import ToolScopeError, assert_tool_allowed, invoke_tool
 
 MAX_STEPS = 8
 
@@ -37,17 +38,45 @@ class Coordinator:
         self.ledger = ledger
         self._step_counts: dict[str, int] = {}
 
+    def _begin_chain(self, case_id: str) -> None:
+        """Reset delegation counter for one API request / tick chain."""
+        self._step_counts[case_id] = 0
+
     def _bump_steps(self, case_id: str) -> None:
         n = self._step_counts.get(case_id, 0) + 1
         self._step_counts[case_id] = n
         if n > MAX_STEPS:
             raise RuntimeError(f"MAX_STEPS ({MAX_STEPS}) exceeded for {case_id}")
 
+    async def _call_tool(self, db: aiosqlite.Connection, case_id: str, step: str, tool_name: str, fn, *args, **kwargs):
+        try:
+            return await invoke_tool(step, tool_name, fn, *args, **kwargs)
+        except ToolScopeError as e:
+            await self.ledger.append_timeline(
+                db,
+                case_id,
+                kind="calculated",
+                label="Tool refused (scope)",
+                detail=str(e),
+                actor="system:guardrails",
+            )
+            await hitl.enqueue(
+                db,
+                case_id,
+                "tool_scope",
+                f"Tool {tool_name} refused for {step}",
+                urgency="URGENT",
+                detail=str(e),
+            )
+            raise
+
     async def _delegate(self, db: aiosqlite.Connection, case_id: str, step: str, coro):
         """Run an agent step with MAX_STEPS + tool-scope bookkeeping."""
         try:
             self._bump_steps(case_id)
         except RuntimeError:
+            if hasattr(coro, "close"):
+                coro.close()
             await hitl.enqueue(
                 db, case_id, "max_steps", "Delegation chain hit MAX_STEPS — human required"
             )
@@ -60,8 +89,8 @@ class Coordinator:
                 actor="system:coordinator",
             )
             return None
-        # Touch TOOL_SCOPES so misuse is detectable via assert_tool_allowed in agents/tools
-        _ = TOOL_SCOPES.get(step, [])
+        # Agents may only use tools listed for this step
+        assert_tool_allowed(step, (TOOL_SCOPES.get(step) or ["read_case_bundle"])[0])
         return await coro
 
     async def open_from_observation(
@@ -115,6 +144,7 @@ class Coordinator:
             },
         )
         case_id = case["case_id"]
+        self._begin_chain(case_id)
 
         # Data quality
         dq_raw = await self._delegate(
@@ -170,14 +200,20 @@ class Coordinator:
             return await self._enter_critical_ladder(db, case_id)
 
         # Ownership
-        own = DelegationResult.model_validate(
-            await ownership_agent.run(
+        own_raw = await self._delegate(
+            db,
+            case_id,
+            "ownership",
+            ownership_agent.run(
                 {
                     "case_id": case_id,
                     "inputs": {"patient": patient, "urgency": tri.outputs.get("urgency")},
                 }
-            )
+            ),
         )
+        if own_raw is None:
+            return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+        own = DelegationResult.model_validate(own_raw)
         await self._apply(
             db, case_id, S.TRIAGED, S.AWAITING_OWNER, "agent:ownership", "assign owner", own.outputs
         )
@@ -192,6 +228,7 @@ class Coordinator:
     async def accept_ownership(
         self, db: aiosqlite.Connection, case_id: str, actor: str
     ) -> dict[str, Any]:
+        self._begin_chain(case_id)
         case = await self.ledger.get_case(db, case_id)
         if not case:
             raise KeyError(case_id)
@@ -219,6 +256,7 @@ class Coordinator:
         return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
 
     async def notify_patient(self, db: aiosqlite.Connection, case_id: str) -> dict[str, Any]:
+        self._begin_chain(case_id)
         case = await self.ledger.get_case(db, case_id)
         if not case:
             raise KeyError(case_id)
@@ -239,8 +277,11 @@ class Coordinator:
         elif "BI-RADS" in (case.get("result_value") or ""):
             result_class = "mammo_urgent"
 
-        res = DelegationResult.model_validate(
-            await comms_agent.run(
+        res_raw = await self._delegate(
+            db,
+            case_id,
+            "comms",
+            comms_agent.run(
                 {
                     "case_id": case_id,
                     "inputs": {
@@ -253,8 +294,11 @@ class Coordinator:
                         "low_literacy": False,
                     },
                 }
-            )
+            ),
         )
+        if res_raw is None:
+            return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+        res = DelegationResult.model_validate(res_raw)
         await self._apply(
             db, case_id, S.OWNED, S.NOTIFIED, "agent:comms", "patient notified", res.outputs
         )
@@ -274,6 +318,7 @@ class Coordinator:
 
     async def mark_unreachable(self, db: aiosqlite.Connection, case_id: str) -> dict[str, Any]:
         """Patient did not engage after notification — escalate to human ladder."""
+        self._begin_chain(case_id)
         case = await self.ledger.get_case(db, case_id)
         if not case:
             raise KeyError(case_id)
@@ -283,11 +328,17 @@ class Coordinator:
         await hitl.enqueue(
             db, case_id, "unreachable", "Patient unreachable — escalate", urgency=case.get("urgency")
         )
-        esc = DelegationResult.model_validate(
-            await escalation_agent.run(
+        esc_raw = await self._delegate(
+            db,
+            case_id,
+            "escalation",
+            escalation_agent.run(
                 {"case_id": case_id, "inputs": {"ladder_step": int(case.get("ladder_step") or 0)}}
-            )
+            ),
         )
+        if esc_raw is None:
+            return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+        esc = DelegationResult.model_validate(esc_raw)
         await self._apply(
             db, case_id, S.UNREACHABLE, S.ESCALATED, "agent:escalation", "unreachable ladder", esc.outputs
         )
@@ -298,6 +349,7 @@ class Coordinator:
     async def submit_teachback(
         self, db: aiosqlite.Connection, case_id: str, answers: list[str]
     ) -> dict[str, Any]:
+        self._begin_chain(case_id)
         case = await self.ledger.get_case(db, case_id)
         if not case:
             raise KeyError(case_id)
@@ -349,12 +401,18 @@ class Coordinator:
         return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
 
     async def navigate(self, db: aiosqlite.Connection, case_id: str) -> dict[str, Any]:
+        # May be nested under teachback chain — do not reset if already counting
+        if self._step_counts.get(case_id, 0) == 0:
+            self._begin_chain(case_id)
         case = await self.ledger.get_case(db, case_id)
         if not case:
             raise KeyError(case_id)
         plan = PLANS.get(case.get("plan_id") or "plan-b", PLANS["plan-b"])
-        res = DelegationResult.model_validate(
-            await navigator_agent.run(
+        res_raw = await self._delegate(
+            db,
+            case_id,
+            "navigate",
+            navigator_agent.run(
                 {
                     "case_id": case_id,
                     "inputs": {
@@ -364,8 +422,11 @@ class Coordinator:
                         "language": case.get("language") or "en",
                     },
                 }
-            )
+            ),
         )
+        if res_raw is None:
+            return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+        res = DelegationResult.model_validate(res_raw)
         if res.status != "ok":
             await hitl.enqueue(db, case_id, "navigation", "No in-network options", urgency=case.get("urgency"))
             return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
@@ -454,6 +515,8 @@ class Coordinator:
     ) -> dict[str, Any]:
         from app.state_machine import _OPEN_TO_CLOSURE_PENDING
 
+        if self._step_counts.get(case_id, 0) == 0:
+            self._begin_chain(case_id)
         case = await self.ledger.get_case(db, case_id)
         if not case:
             raise KeyError(case_id)
@@ -466,9 +529,16 @@ class Coordinator:
             # four_eyes_ok is ignored — two-person approval is the only override path
             cleaned = {k: v for k, v in human.items() if k != "four_eyes_ok"}
             evidence.update(cleaned)
-        res = DelegationResult.model_validate(
-            await closure_agent.run({"case_id": case_id, "inputs": {"evidence": evidence}})
+        res_raw = await self._delegate(
+            db,
+            case_id,
+            "closure",
+            closure_agent.run({"case_id": case_id, "inputs": {"evidence": evidence}}),
         )
+        if res_raw is None:
+            return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+        res = DelegationResult.model_validate(res_raw)
+        current = S(case["state"])
         if current is S.ATTENDED:
             await self._apply(db, case_id, current, S.CLOSURE_PENDING, "agent:closure", "verify", {})
             current = S.CLOSURE_PENDING
@@ -635,17 +705,24 @@ class Coordinator:
     async def reassure(
         self, db: aiosqlite.Connection, case_id: str, question: str
     ) -> dict[str, Any]:
+        self._begin_chain(case_id)
         case = await self.ledger.get_case(db, case_id)
         if not case:
             raise KeyError(case_id)
-        res = DelegationResult.model_validate(
-            await reassurance_agent.run(
+        res_raw = await self._delegate(
+            db,
+            case_id,
+            "reassurance",
+            reassurance_agent.run(
                 {
                     "case_id": case_id,
                     "inputs": {"question": question, "language": case.get("language") or "en"},
                 }
-            )
+            ),
         )
+        if res_raw is None:
+            return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+        res = DelegationResult.model_validate(res_raw)
         await self.ledger.append_timeline(
             db,
             case_id,
@@ -663,12 +740,19 @@ class Coordinator:
         return out  # type: ignore[return-value]
 
     async def econsult_packet(self, db: aiosqlite.Connection, case_id: str) -> dict[str, Any]:
+        self._begin_chain(case_id)
         case = await self.ledger.get_case(db, case_id)
         if not case:
             raise KeyError(case_id)
-        res = DelegationResult.model_validate(
-            await econsult_agent.run({"case_id": case_id, "inputs": {"case": case}})
+        res_raw = await self._delegate(
+            db,
+            case_id,
+            "econsult",
+            econsult_agent.run({"case_id": case_id, "inputs": {"case": case}}),
         )
+        if res_raw is None:
+            return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+        res = DelegationResult.model_validate(res_raw)
         await self.ledger.append_timeline(
             db, case_id, kind="ai", label="E-consult packet drafted", detail="Awaiting clinician review", actor="agent:econsult"
         )
@@ -679,9 +763,15 @@ class Coordinator:
     async def _enter_critical_ladder(self, db: aiosqlite.Connection, case_id: str) -> dict[str, Any]:
         from app import demo_clock
 
-        esc = DelegationResult.model_validate(
-            await escalation_agent.run({"case_id": case_id, "inputs": {"ladder_step": 0}})
+        esc_raw = await self._delegate(
+            db,
+            case_id,
+            "escalation",
+            escalation_agent.run({"case_id": case_id, "inputs": {"ladder_step": 0}}),
         )
+        if esc_raw is None:
+            return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+        esc = DelegationResult.model_validate(esc_raw)
         await self._apply(db, case_id, S.TRIAGED, S.ESCALATED, "agent:escalation", "critical ladder", esc.outputs)
         started = demo_clock.now()
         case = await self.ledger.get_case(db, case_id)
@@ -732,6 +822,7 @@ class Coordinator:
 
     async def advance_ladder(self, db: aiosqlite.Connection, case_id: str) -> dict[str, Any] | None:
         """Move one ladder step. Never closes the case."""
+        self._begin_chain(case_id)
         case = await self.ledger.get_case(db, case_id)
         if not case:
             return None

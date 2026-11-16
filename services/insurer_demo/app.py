@@ -16,7 +16,7 @@ _ORCH = Path(__file__).resolve().parents[1] / "orchestrator"
 if str(_ORCH) not in sys.path:
     sys.path.insert(0, str(_ORCH))
 
-from app.insurer import SCENARIOS, agent_card, check_coverage  # noqa: E402
+from app.insurer import SCENARIOS, agent_card, check_coverage
 
 app = FastAPI(title="Demo Health Insurance", version="0.1.0")
 

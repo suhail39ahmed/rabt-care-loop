@@ -24,7 +24,14 @@ from app.auth import (
 from app.case_errors import CaseNotFound
 from app.coordinator import Coordinator
 from app.demo_seed import seed_demo
-from app.hitl import ApprovalError, list_approvals, list_queue, mark_approved, submit_decision
+from app.hitl import (
+    ApprovalError,
+    list_approvals,
+    list_queue,
+    mark_approved,
+    resolve_queue_item,
+    submit_decision,
+)
 from app.ledger import Ledger
 from app.reference_data import PLANS, PROVIDERS
 from app.settings import get_settings
@@ -354,9 +361,14 @@ def _persona(request: Request) -> str:
 async def accept(case_id: str, request: Request, actor: str | None = None):
     db = await ledger.connect()
     try:
+        case = await ledger.get_case(db, case_id)
+        if case and case.get("state") == "OnHoldConsent":
+            raise HTTPException(409, "cannot accept ownership while consent is on hold — resume consent first")
         return await coordinator.accept_ownership(
             db, case_id, _persona(request) or as_actor(actor or "human:gp-aisha")
         )
+    except CaseNotFound:
+        raise HTTPException(404, "case not found") from None
     except IllegalTransition as e:
         raise HTTPException(400, str(e)) from e
     finally:
@@ -480,6 +492,62 @@ async def withdraw(case_id: str):
         await db.close()
 
 
+@app.post("/cases/{case_id}/consent/resume")
+async def resume_consent(case_id: str, request: Request):
+    db = await ledger.connect()
+    try:
+        return await coordinator.resume_consent(
+            db, case_id, _persona(request) or "human:coordinator-sara"
+        )
+    except CaseNotFound:
+        raise HTTPException(404, "case not found") from None
+    except IllegalTransition as e:
+        raise HTTPException(400, str(e)) from e
+    finally:
+        await db.close()
+
+
+@app.post("/cases/{case_id}/unreachable")
+async def unreachable(case_id: str):
+    db = await ledger.connect()
+    try:
+        return await coordinator.mark_unreachable(db, case_id)
+    except CaseNotFound:
+        raise HTTPException(404, "case not found") from None
+    except IllegalTransition as e:
+        raise HTTPException(400, str(e)) from e
+    finally:
+        await db.close()
+
+
+@app.post("/cases/{case_id}/data-query/resolve")
+async def resolve_data(case_id: str):
+    db = await ledger.connect()
+    try:
+        return await coordinator.resolve_data_query(db, case_id)
+    except CaseNotFound:
+        raise HTTPException(404, "case not found") from None
+    except IllegalTransition as e:
+        raise HTTPException(400, str(e)) from e
+    finally:
+        await db.close()
+
+
+@app.post("/cases/{case_id}/callback/done")
+async def callback_done(case_id: str, request: Request):
+    db = await ledger.connect()
+    try:
+        return await coordinator.callback_done(
+            db, case_id, _persona(request) or "human:coordinator-sara"
+        )
+    except CaseNotFound:
+        raise HTTPException(404, "case not found") from None
+    except IllegalTransition as e:
+        raise HTTPException(400, str(e)) from e
+    finally:
+        await db.close()
+
+
 @app.post("/cases/{case_id}/reassure")
 async def reassure(case_id: str, body: QuestionIn):
     db = await ledger.connect()
@@ -520,6 +588,18 @@ async def queue():
     db = await ledger.connect()
     try:
         return await list_queue(db)
+    finally:
+        await db.close()
+
+
+@app.post("/queue/{qid}/resolve")
+async def queue_resolve(qid: str):
+    db = await ledger.connect()
+    try:
+        item = await resolve_queue_item(db, qid)
+        if item is None:
+            raise HTTPException(404, "queue item not found")
+        return item
     finally:
         await db.close()
 

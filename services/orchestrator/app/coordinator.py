@@ -821,9 +821,15 @@ class Coordinator:
         if not case:
             raise CaseNotFound(case_id)
         await self.ledger.update_case(db, case_id, consent_messaging=0)
-        if case["state"] == S.OWNED.value:
+        if case["state"] in (S.OWNED.value, S.NOTIFIED.value):
             await self._apply(
-                db, case_id, S.OWNED, S.ON_HOLD_CONSENT, "patient:consent", "consent withdrawn", {}
+                db,
+                case_id,
+                S(case["state"]),
+                S.ON_HOLD_CONSENT,
+                "patient:consent",
+                "consent withdrawn",
+                {},
             )
         else:
             await self.ledger.append_timeline(
@@ -1071,6 +1077,7 @@ class Coordinator:
             raise CaseNotFound(case_id)
         await self.stop_ladder(db, case_id)
         await self._apply(db, case_id, S(case["state"]), S.OWNED, actor, "human handled escalation", {})
+        await hitl.resolve_open_for_case(db, case_id)
         return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
 
     async def resolve_data_query(self, db: aiosqlite.Connection, case_id: str) -> dict[str, Any]:
@@ -1078,6 +1085,34 @@ class Coordinator:
         if not case:
             raise CaseNotFound(case_id)
         await self._apply(db, case_id, S.DATA_QUERY, S.NEW, "human:coordinator", "data fixed", {})
+        await hitl.resolve_open_for_case(db, case_id, kind="data_query")
+        return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+
+    async def resume_consent(self, db: aiosqlite.Connection, case_id: str, actor: str) -> dict[str, Any]:
+        """Resume automation after consent restored (#85)."""
+        case = await self.ledger.get_case(db, case_id)
+        if not case:
+            raise CaseNotFound(case_id)
+        if case["state"] != S.ON_HOLD_CONSENT.value:
+            raise IllegalTransition(f"cannot resume consent from {case['state']}")
+        await self.ledger.update_case(db, case_id, consent_messaging=1)
+        await self._apply(
+            db, case_id, S.ON_HOLD_CONSENT, S.OWNED, actor, "consent restored", {"consent_messaging": True}
+        )
+        await hitl.resolve_open_for_case(db, case_id, kind="consent")
+        return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+
+    async def callback_done(self, db: aiosqlite.Connection, case_id: str, actor: str) -> dict[str, Any]:
+        """Human completed callback — return case to Owned (#85)."""
+        case = await self.ledger.get_case(db, case_id)
+        if not case:
+            raise CaseNotFound(case_id)
+        if case["state"] != S.HUMAN_CALLBACK.value:
+            raise IllegalTransition(f"callback done only from HumanCallback, got {case['state']}")
+        await self._apply(
+            db, case_id, S.HUMAN_CALLBACK, S.OWNED, actor, "human callback completed", {}
+        )
+        await hitl.resolve_open_for_case(db, case_id, kind="callback")
         return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
 
     async def _apply(

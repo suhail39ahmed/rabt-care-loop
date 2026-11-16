@@ -1,0 +1,12 @@
+flowchart LR
+  CO["Coordinator<br/>(N instances)"] -->|"one transaction"| PG[("Postgres<br/>cases + outbox")]
+  PG --> RELAY["Outbox relay"]
+  RELAY --> SB["Azure Service Bus topic<br/>sessions per case · retries · DLQ"]
+  RELAY -.-> EG["Azure Event Grid<br/>fan-out"]
+  SB --> N["Notifications"]
+  SB --> X["Expert-call queue"]
+  SB --> INS["Insurance Navigator"]
+  SB --> FHIR["Malaffi / FHIR sync"]
+  EG --> AN["Analytics / KPIs"]
+  TMR["Scheduled messages /<br/>Durable Functions timers"] -->|"ladder step due,<br/>approval timeout"| CO
+  SB -.->|"schedule"| TMR

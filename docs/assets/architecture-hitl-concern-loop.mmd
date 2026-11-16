@@ -1,0 +1,42 @@
+flowchart TB
+  subgraph A["A. Concern listening & reassurance (#86)"]
+    direction TB
+    P1["Patient: teach-back fail<br/>or 'I have a concern'<br/>text / voice, any language"]
+    LEX{"Crisis / red-flag /<br/>refusal lexicon<br/>(deterministic, runs first)"}
+    CAG["Concern agent — LLM<br/>type · risk · summary<br/>patient words kept verbatim"]
+    REP["Approved reassurance +<br/>'why follow-up matters'<br/>snippets only · guardrails"]
+    CQ["Coordinator: Patient concerns queue<br/>call · send approved msg · book · assign expert"]
+    EXP["Expert / counsellor call<br/>AI-drafted conversation guide"]
+    OUT{"Call outcome"}
+    SUP["Supervisor view<br/>refusers · high risk · trends<br/>another call · GP letter · informed refusal"]
+    BK["Booking → normal loop"]
+    P1 --> LEX
+    LEX -->|"crisis / red flag / refusal"| CQ
+    LEX -->|"ok"| CAG --> REP --> CQ
+    CQ --> EXP --> OUT
+    OUT -->|"convinced_booked"| BK
+    OUT -->|"needs_another_call"| CQ
+    OUT -->|"refused"| SUP
+  end
+
+  subgraph B["B. Critical / emergency expert call (#87)"]
+    direction TB
+    CR["Triage = CRITICAL"]
+    LAD["Escalation ladder keeps running<br/>coordinator 0 → on-call 15m → lead 45m"]
+    TASK["Expert call task — now<br/>AI-drafted urgent script, no numbers<br/>approved red-flag advice (998)"]
+    CL["Clinician calls patient<br/>(never AI-only)"]
+    CO{"Outcome"}
+    GO["reached_going_now<br/>ladder stops · case Owned"]
+    REF["reached_refusing<br/>supervisor + physician now<br/>informed refusal"]
+    NR["not_reached<br/>retry 5m → alternate contact → supervisor"]
+    CR --> LAD
+    CR --> TASK --> CL --> CO
+    CO --> GO
+    CO --> REF
+    CO --> NR --> CL
+    NR -.->|"ladder not stopped"| LAD
+  end
+
+  AUD[("Ledger timeline<br/>actor · ai_generated · model<br/>time-to-reach-critical KPI")]
+  A --> AUD
+  B --> AUD

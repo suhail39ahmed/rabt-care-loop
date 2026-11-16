@@ -97,7 +97,7 @@ The **Coordinator** (`services/orchestrator/app/coordinator.py`) is the supervis
 | Exceptional closure | Closing without evidence | Creates a 2-approver request; the same user can't vote twice |
 | Timeouts | Approval past its due time | Safe defaults are defined and **never close a case** (`hitl.py` `SAFE_DEFAULTS`) |
 
-See the **Limitations** section for what is still partial in these gates.
+See the **Limitations** section for what is still partial in these gates. Full list of human inputs per role, plus the planned concern-listening loop and critical expert call: [docs/hitl-playbook.md](docs/hitl-playbook.md). Eventing today vs pilot: [docs/architecture.md](docs/architecture.md).
 
 ## Agentic delegation
 

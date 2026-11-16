@@ -36,19 +36,16 @@ export default async function HomePage() {
               ربط · Rabt
             </div>
             <div className="muted" style={{ fontSize: "0.82rem" }}>
-              Sehatna-style care loop
+              Care-loop demo for screening follow-up
             </div>
           </div>
         </div>
         <div className="actions" style={{ marginTop: 0 }}>
-          <Link className="btn" href="/learn/features">
-            Features deep dive
-          </Link>
-          <Link className="btn ghost" href="/learn">
-            Learn path
-          </Link>
-          <Link className="btn secondary" href="/board">
+          <Link className="btn" href="/board">
             Board
+          </Link>
+          <Link className="btn secondary" href="/admin">
+            Admin
           </Link>
         </div>
       </div>
@@ -69,7 +66,9 @@ export default async function HomePage() {
         </p>
       </section>
 
-      <div className="banner rise d3">{demo?.banner || "Synthetic data. Demo only."}</div>
+      <div className="banner rise d3">
+        {demo?.banner || "Synthetic data. Demo only. Shared demo — data resets on restart."}
+      </div>
 
       <section className="persona-grid rise d3">
         {(demo?.personas || []).map((p) => {

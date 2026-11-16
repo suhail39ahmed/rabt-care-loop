@@ -82,11 +82,12 @@ async def seed_demo(ledger: Ledger, coordinator: Coordinator) -> dict[str, str]:
     db = await ledger.connect()
     ids: dict[str, str] = {}
 
-    # GC-01 / SC-01 — Fatima HbA1c
+    # GC-01 / SC-01 — Fatima HbA1c (stable id for deck/README links)
     fatima = DEMO_PATIENTS["fatima"]
     c = await coordinator.open_from_observation(
         db,
         {
+            "case_id": "case-gc01-fatima",
             "idempotency_key": "demo/GC-01",
             "patient_id": fatima["id"],
             "patient": fatima,
@@ -103,6 +104,7 @@ async def seed_demo(ledger: Ledger, coordinator: Coordinator) -> dict[str, str]:
     c2 = await coordinator.open_from_observation(
         db,
         {
+            "case_id": "case-gc02-bp",
             "idempotency_key": "demo/GC-02",
             "patient_id": omar["id"],
             "patient": omar,
@@ -117,6 +119,7 @@ async def seed_demo(ledger: Ledger, coordinator: Coordinator) -> dict[str, str]:
     c5 = await coordinator.open_from_observation(
         db,
         {
+            "case_id": "case-gc05-fit",
             "idempotency_key": "demo/GC-05",
             "patient_id": ravi["id"],
             "patient": ravi,
@@ -141,6 +144,7 @@ async def seed_demo(ledger: Ledger, coordinator: Coordinator) -> dict[str, str]:
     c7 = await coordinator.open_from_observation(
         db,
         {
+            "case_id": "case-gc07-data",
             "idempotency_key": "demo/GC-07",
             "patient_id": omar["id"],
             "patient": omar,
@@ -153,6 +157,7 @@ async def seed_demo(ledger: Ledger, coordinator: Coordinator) -> dict[str, str]:
     c8 = await coordinator.open_from_observation(
         db,
         {
+            "case_id": "case-gc08-consent",
             "idempotency_key": "demo/GC-08",
             "patient_id": fatima["id"],
             "patient": fatima,
@@ -167,6 +172,7 @@ async def seed_demo(ledger: Ledger, coordinator: Coordinator) -> dict[str, str]:
     c10 = await coordinator.open_from_observation(
         db,
         {
+            "case_id": "case-gc10-closure",
             "idempotency_key": "demo/GC-10",
             "patient_id": omar["id"],
             "patient": omar,

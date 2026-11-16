@@ -170,10 +170,43 @@ async def demo_advance(minutes: float = 15):
         await db.close()
 
 
+@app.post("/demo/reset")
+async def demo_reset():
+    """Wipe and reseed the shared demo (persona-protected)."""
+    global DEMO_IDS, coordinator
+    demo_clock.reset()
+    db_path = ledger.db_path
+    try:
+        if os.path.exists(db_path):
+            os.remove(db_path)
+    except OSError:
+        # Fall back to truncating tables if the file is locked
+        db = await ledger.connect()
+        try:
+            for table in (
+                "approval_votes",
+                "approvals",
+                "queue_items",
+                "cases",
+                "processed_events",
+            ):
+                await db.execute(f"DELETE FROM {table}")
+            await db.commit()
+        finally:
+            await db.close()
+    DEMO_IDS = await seed_demo(ledger, coordinator)
+    return {
+        "ok": True,
+        "cases": DEMO_IDS,
+        "demo_clock_offset_seconds": demo_clock.offset_seconds(),
+        "note": "Shared demo reseeding. Links use stable case ids (case-gc01-fatima, …).",
+    }
+
+
 @app.get("/demo")
 async def demo_index():
     return {
-        "banner": "Synthetic data. Demo only. Not a diagnosis. Not for clinical use.",
+        "banner": "Synthetic data. Demo only. Not a diagnosis. Not for clinical use. Shared demo — data resets on restart or Reset demo.",
         "demo_clock_offset_seconds": demo_clock.offset_seconds(),
         "personas": [
             {

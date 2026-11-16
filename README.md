@@ -212,9 +212,9 @@ The API rebuilds a fresh demo database (`data/rabt.db`) on every start, so guest
 Open https://rabt-web.onrender.com (or http://localhost:3000). Guest mode — no login. Writes need the board persona header (`X-Rabt-Persona`).
 
 1. **Fatima, patient (Arabic)** → patient card: RTL result with “not a diagnosis” → answer every teach-back question → book an in-network option.
-2. **Dr Aisha** → `/board`: accept ownership of an awaiting case.
+2. **Dr Aisha** → `/board`: accept ownership of seeded `case-gc03-owner` (state `AwaitingOwner`).
 3. **Coordinator Sara** → `/board`: critical BP in the escalation queue (SMS has no values). Use **Advance +15m** to move the ladder, then **Handle escalation**.
-4. **Evidence closure** → on a booked case: **Mark attended** (stays open) → **Record outcome** → closes with evidence.
+4. **Evidence closure** → on a booked case: **Mark attended** (shows **Attended — outcome needed**) → **Record outcome** → closes with evidence.
 5. **Two-person close** → on a case without evidence: **Request close** as persona A → switch persona → Approve twice with distinct non-requester personas → `ClosedByHuman`.
 6. **KPIs** → `/admin`: false closures and critical recall on the synthetic seed.
 

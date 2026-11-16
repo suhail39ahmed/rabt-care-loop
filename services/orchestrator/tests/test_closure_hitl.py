@@ -76,8 +76,8 @@ async def test_attendance_without_outcome_blocks_or_routes_to_approval(orch):
     evidence = case.get("evidence") or {}
     assert evidence.get("attended_encounter") is True
     assert not evidence.get("outcome_document")
-    # bounced to Owned after missing outcome
-    assert case["state"] == "Owned"
+    # bounced to Attended after missing outcome (#53)
+    assert case["state"] == "Attended"
 
 
 @pytest.mark.asyncio

@@ -52,6 +52,20 @@ const PERSONAS = [
   { id: "human:supervisor", label: "Supervisor" },
 ] as const;
 
+function boardStateLabel(c: Case): string {
+  const ev = c.evidence as
+    | { attended_encounter?: boolean; outcome_document?: boolean }
+    | undefined;
+  if (
+    (c.state === "Attended" || c.state === "Owned") &&
+    ev?.attended_encounter &&
+    !ev?.outcome_document
+  ) {
+    return "Attended — outcome needed";
+  }
+  return c.state;
+}
+
 export default function BoardPage() {
   const [cases, setCases] = useState<Case[]>([]);
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -215,7 +229,7 @@ export default function BoardPage() {
               setSelected(null);
               await api("/demo/reset", { method: "POST" });
               await refresh();
-              setFlash("Demo reset — 6 seeded cases restored.");
+              setFlash("Demo reset — 7 seeded cases restored.");
             }}
           >
             Reset demo
@@ -326,7 +340,9 @@ export default function BoardPage() {
                 </span>
               </div>
               <div className="muted">
-                {c.state} · {(c.evidence as { patient_display_name?: string } | undefined)?.patient_display_name || c.patient_id}
+                {boardStateLabel(c)} ·{" "}
+                {(c.evidence as { patient_display_name?: string } | undefined)?.patient_display_name ||
+                  c.patient_id}
                 {c.ladder_step ? ` · L${c.ladder_step}` : ""}
               </div>
             </button>
@@ -340,7 +356,7 @@ export default function BoardPage() {
           {selected ? (
             <>
               <div className="chip-row">
-                <span className="tag role">{selected.state}</span>
+                <span className="tag role">{boardStateLabel(selected)}</span>
                 <span className={`tag ${selected.urgency === "CRITICAL" ? "urgent" : "calculated"}`}>
                   {selected.urgency}
                 </span>

@@ -63,10 +63,11 @@ ALLOWED: dict[S, set[S]] = {
     S.BOOKED: {S.ATTENDED, S.NO_SHOW, S.CLOSURE_PENDING},
     S.NO_SHOW: {S.NOTIFIED, S.CLOSURE_PENDING},
     S.ATTENDED: {S.CLOSURE_PENDING},
-    # Restore to pre-close open state on reject/timeout (#51), plus close outcomes.
+    # Restore on reject/timeout (#51); Attended included for missing-outcome bounce (#53).
     S.CLOSURE_PENDING: {
         S.CLOSED,
         S.OWNED,
+        S.ATTENDED,
         S.ON_HOLD_CONSENT,
         S.CLOSED_BY_HUMAN,
         *_OPEN_TO_CLOSURE_PENDING,

@@ -114,6 +114,20 @@ async def seed_demo(ledger: Ledger, coordinator: Coordinator) -> dict[str, str]:
     )
     ids["gc02_critical_bp"] = c2["case_id"]
 
+    # GC-03 — AwaitingOwner for walkthrough step 2 (Dr Aisha accepts)
+    c3 = await coordinator.open_from_observation(
+        db,
+        {
+            "case_id": "case-gc03-owner",
+            "idempotency_key": "demo/GC-03",
+            "patient_id": omar["id"],
+            "patient": omar,
+            "plan_id": omar["plan_id"],
+            "observation": obs_mammo(omar["id"], "obs-gc03"),
+        },
+    )
+    ids["gc03_owner"] = c3["case_id"]
+
     # GC-05 — FIT positive for navigator (Plan C / Ravi)
     ravi = DEMO_PATIENTS["ravi"]
     c5 = await coordinator.open_from_observation(

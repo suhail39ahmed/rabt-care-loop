@@ -210,6 +210,15 @@ class QuestionIn(BaseModel):
     question: str = Field(max_length=500)
 
 
+class CallOutcomeIn(BaseModel):
+    outcome: Literal["reached_going_now", "reached_refusing", "not_reached"]
+
+
+class ConcernIn(BaseModel):
+    text: str = Field(max_length=1000)
+    language: str | None = None
+
+
 class DeclineIn(BaseModel):
     reason: str = Field(max_length=500)
     actor: str = "human:owner"
@@ -579,6 +588,34 @@ async def handle_escalation(case_id: str, request: Request, actor: str | None = 
         return await coordinator.human_handle_escalation(
             db, case_id, _persona(request) or as_actor(actor or "human:coordinator-sara")
         )
+    except IllegalTransition as e:
+        raise HTTPException(400, str(e)) from e
+    finally:
+        await db.close()
+
+
+@app.post("/cases/{case_id}/call/outcome")
+async def call_outcome(case_id: str, body: CallOutcomeIn, request: Request):
+    db = await ledger.connect()
+    try:
+        return await coordinator.log_call_outcome(
+            db, case_id, body.outcome, _persona(request) or "human:coordinator-sara"
+        )
+    except CaseNotFound:
+        raise HTTPException(404, "case not found") from None
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    finally:
+        await db.close()
+
+
+@app.post("/cases/{case_id}/concern")
+async def concern(case_id: str, body: ConcernIn):
+    db = await ledger.connect()
+    try:
+        return await coordinator.share_concern(db, case_id, body.text, language=body.language)
+    except CaseNotFound:
+        raise HTTPException(404, "case not found") from None
     except IllegalTransition as e:
         raise HTTPException(400, str(e)) from e
     finally:

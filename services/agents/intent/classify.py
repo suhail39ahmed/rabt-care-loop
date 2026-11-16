@@ -8,12 +8,12 @@ from typing import Any
 from agents.common.guardrails import has_red_flag
 
 CONCERN_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("cost", re.compile(r"\b(cost|expensive|pay|insurance|تكلفة|غالي)\b", re.I)),
-    ("fear", re.compile(r"\b(afraid|fear|scared|cancer|خوف|سرطان)\b", re.I)),
-    ("time", re.compile(r"\b(busy|time|work|وقت|مشغول)\b", re.I)),
-    ("transport", re.compile(r"\b(transport|distance|far|مواصلات|بعيد)\b", re.I)),
-    ("language", re.compile(r"\b(language|arabic|english|لغة)\b", re.I)),
-    ("distrust", re.compile(r"\b(wrong|mistake|error|خطأ|غلط)\b", re.I)),
+    ("cost", re.compile(r"\b(cost|expensive|pay|insurance|تكلفة|غالي)\b", re.IGNORECASE)),
+    ("fear", re.compile(r"\b(afraid|fear|scared|cancer|خوف|سرطان)\b", re.IGNORECASE)),
+    ("time", re.compile(r"\b(busy|time|work|وقت|مشغول)\b", re.IGNORECASE)),
+    ("transport", re.compile(r"\b(transport|distance|far|مواصلات|بعيد)\b", re.IGNORECASE)),
+    ("language", re.compile(r"\b(language|arabic|english|لغة)\b", re.IGNORECASE)),
+    ("distrust", re.compile(r"\b(wrong|mistake|error|خطأ|غلط)\b", re.IGNORECASE)),
 ]
 
 APPROVED_SNIPPETS: dict[str, dict[str, str]] = {

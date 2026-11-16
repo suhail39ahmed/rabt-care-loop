@@ -764,6 +764,45 @@ async def kpis():
         await db.close()
 
 
+@app.get("/benchmark/fairness")
+async def fairness():
+    """Equity slices with small-cell suppression (#59)."""
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[3] / "benchmark" / "reports" / "report.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    thr = int(data.get("small_cell_threshold") or 10)
+    out = []
+    for row in data.get("slices") or []:
+        item = dict(row)
+        if int(item.get("n") or 0) < thr:
+            item["suppressed"] = True
+            item["critical_recall"] = None
+            item["false_closures"] = None
+            item["median_hours_to_next_step"] = None
+            item["n_display"] = f"<{thr}"
+        else:
+            item["suppressed"] = False
+            item["n_display"] = str(item.get("n"))
+        out.append(item)
+    return {"label": data.get("label"), "small_cell_threshold": thr, "slices": out}
+
+
+@app.get("/cases/{case_id}/evidence-pack")
+async def evidence_pack(case_id: str):
+    from app.evidence_pack import build_evidence_pack
+
+    db = await ledger.connect()
+    try:
+        case = await ledger.get_case(db, case_id)
+        if not case:
+            raise HTTPException(404, "case not found")
+        return build_evidence_pack(case)
+    finally:
+        await db.close()
+
+
 def run():
     import uvicorn
 

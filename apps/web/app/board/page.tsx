@@ -26,6 +26,30 @@ type Case = {
   ladder_step?: number;
   evidence?: Evidence & { patient_display_name?: string };
   timeline: Array<{ kind: string; label: string; detail: string; actor: string; at?: number }>;
+  provenance?: Array<{
+    from?: string;
+    to?: string;
+    actor?: string;
+    reason?: string;
+    evidence?: Record<string, unknown>;
+  }>;
+  messages?: Array<{
+    channel?: string;
+    text?: string;
+    text_ar?: string;
+    includes_values?: boolean;
+    ai_generated?: boolean;
+  }>;
+  options?: Array<{
+    id: string;
+    name: string;
+    score: number;
+    in_network?: boolean;
+    distance_km?: number;
+    earliest_slot_hours?: number;
+    language_match?: boolean;
+  }>;
+  result_value?: string | number;
 };
 
 type QueueItem = {
@@ -520,7 +544,85 @@ export default function BoardPage() {
                 <Link className="btn secondary" href={`/patient/${selected.case_id}?lang=en`}>
                   Patient view
                 </Link>
+                <a
+                  className="btn secondary"
+                  href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/cases/${selected.case_id}/evidence-pack`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Download evidence pack
+                </a>
               </div>
+              <details style={{ marginTop: "1rem" }}>
+                <summary style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>Why?</summary>
+                <p className="muted">
+                  Illustrative thresholds pending clinician / DoH sign-off. Values are fact / calculated / AI-generated from
+                  timeline kinds — no LLM text for deterministic steps.
+                </p>
+                <ul>
+                  {(selected.provenance || []).map((p, i) => (
+                    <li key={`${p.to}-${i}`}>
+                      <strong>
+                        {p.from} → {p.to}
+                      </strong>{" "}
+                      · {p.reason}
+                      {p.evidence?.rule_id ? (
+                        <div className="muted">
+                          rule {String(p.evidence.rule_id)} v{String(p.evidence.rule_version || "—")}
+                          {selected.result_value != null ? ` · input ${selected.result_value}` : ""}
+                        </div>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+                {selected.options?.length ? (
+                  <div>
+                    <strong>Navigator score breakdown</strong>
+                    <ul>
+                      {selected.options.map((o) => (
+                        <li key={o.id}>
+                          {o.name}: score {o.score}
+                          {o.in_network ? " · in-network" : ""}
+                          {o.distance_km != null ? ` · ${o.distance_km} km` : ""}
+                          {o.earliest_slot_hours != null ? ` · ${o.earliest_slot_hours}h` : ""}
+                          {o.language_match ? " · language match" : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </details>
+              <details style={{ marginTop: "0.75rem" }}>
+                <summary style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>
+                  Channel preview (simulated)
+                </summary>
+                <p className="muted">Simulated SMS / WhatsApp — nothing is sent. No result values over SMS.</p>
+                {(selected.messages || [])
+                  .filter((m) => m.channel === "sms" || m.text || m.text_ar)
+                  .map((m, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        maxWidth: 280,
+                        margin: "0.5rem 0",
+                        padding: "0.75rem",
+                        borderRadius: "1rem",
+                        border: "1px solid var(--line)",
+                        background: "#f7faf8",
+                      }}
+                    >
+                      <div className="muted" style={{ fontSize: "0.75rem" }}>
+                        {m.channel || "message"} · simulated
+                      </div>
+                      <p style={{ whiteSpace: "pre-wrap", margin: "0.35rem 0" }}>{m.text}</p>
+                      {m.text_ar ? (
+                        <p style={{ whiteSpace: "pre-wrap", margin: 0 }} dir="rtl">
+                          {m.text_ar}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))}
+              </details>
               <h3 style={{ fontFamily: "var(--font-display)", marginTop: "1.4rem" }}>Timeline</h3>
               <p className="muted" style={{ marginTop: 0 }}>
                 Blue = recorded fact · Gold = calculated (templates/rules) · Violet = AI-generated (LLM ran)

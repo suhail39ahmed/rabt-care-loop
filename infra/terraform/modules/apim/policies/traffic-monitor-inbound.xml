@@ -1,0 +1,12 @@
+<fragment>
+  <!-- Correlation + request metric (no bodies / no patient data). -->
+  <set-header name="x-rabt-request-id" exists-action="skip">
+    <value>@(context.Request.Headers.GetValueOrDefault("x-rabt-request-id", Guid.NewGuid().ToString("n")))</value>
+  </set-header>
+  <set-variable name="rabt-req-started" value="@(DateTime.UtcNow)" />
+  <emit-metric name="GatewayRequests" namespace="rabt-ai-gateway" value="1">
+    <dimension name="Api" value="@(context.Api?.Name ?? "unknown")" />
+    <dimension name="Operation" value="@(context.Operation?.Name ?? "unknown")" />
+    <dimension name="Caller" value="@(context.Subscription?.Id ?? context.Request.IpAddress)" />
+  </emit-metric>
+</fragment>

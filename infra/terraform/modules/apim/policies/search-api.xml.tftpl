@@ -1,6 +1,7 @@
 <policies>
   <inbound>
     <base />
+    <include-fragment fragment-id="rabt-traffic-monitor-inbound" />
     ${auth}
     <rate-limit-by-key calls="${calls_per_minute}" renewal-period="60" counter-key="@(context.Subscription?.Id ?? context.Request.IpAddress)" />
     <choose>
@@ -19,6 +20,7 @@
   </backend>
   <outbound>
     <base />
+    <include-fragment fragment-id="rabt-traffic-monitor-outbound" />
   </outbound>
   <on-error>
     <base />

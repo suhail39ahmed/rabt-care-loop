@@ -1,0 +1,19 @@
+<policies>
+  <inbound>
+    <base />
+    <include-fragment fragment-id="rabt-traffic-monitor-inbound" />
+    <!-- HMAC A2A is the authn; subscription_required=false on this API. -->
+    <rate-limit-by-key calls="120" renewal-period="60" counter-key="@(context.Request.Headers.GetValueOrDefault(&quot;X-Rabt-Agent&quot;, context.Request.IpAddress))" />
+    <set-backend-service backend-id="${backend_id}" />
+  </inbound>
+  <backend>
+    <forward-request buffer-request-body="true" timeout="15" />
+  </backend>
+  <outbound>
+    <base />
+    <include-fragment fragment-id="rabt-traffic-monitor-outbound" />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

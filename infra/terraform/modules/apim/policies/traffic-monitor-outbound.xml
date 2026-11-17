@@ -1,0 +1,10 @@
+<fragment>
+  <!-- Latency metric + echo correlation id (no bodies). -->
+  <set-header name="x-rabt-request-id" exists-action="override">
+    <value>@(context.Request.Headers.GetValueOrDefault("x-rabt-request-id", ""))</value>
+  </set-header>
+  <emit-metric name="GatewayLatencyMs" namespace="rabt-ai-gateway" value="@(context.Variables.ContainsKey(&quot;rabt-req-started&quot;) ? (DateTime.UtcNow - (DateTime)context.Variables[&quot;rabt-req-started&quot;]).TotalMilliseconds : 0)">
+    <dimension name="Api" value="@(context.Api?.Name ?? "unknown")" />
+    <dimension name="Status" value="@(context.Response.StatusCode.ToString())" />
+  </emit-metric>
+</fragment>

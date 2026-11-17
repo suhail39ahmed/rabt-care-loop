@@ -110,6 +110,23 @@ resource "azapi_update_resource" "apim_diagnostic_metrics" {
   }
 }
 
+# Reusable traffic-monitor fragments (correlation id + gateway request/latency metrics).
+resource "azurerm_api_management_policy_fragment" "traffic_inbound" {
+  api_management_id = azurerm_api_management.main.id
+  name              = "rabt-traffic-monitor-inbound"
+  description       = "Correlation id + GatewayRequests metric (no bodies)."
+  format            = "rawxml"
+  value             = file("${path.module}/policies/traffic-monitor-inbound.xml")
+}
+
+resource "azurerm_api_management_policy_fragment" "traffic_outbound" {
+  api_management_id = azurerm_api_management.main.id
+  name              = "rabt-traffic-monitor-outbound"
+  description       = "Echo correlation id + GatewayLatencyMs metric (no bodies)."
+  format            = "rawxml"
+  value             = file("${path.module}/policies/traffic-monitor-outbound.xml")
+}
+
 # --- Backends ---
 resource "azurerm_api_management_backend" "openai" {
   #checkov:skip=CKV_AZURE_215:protocol "http" is the APIM REST-backend type; the url is https and TLS validation is on
@@ -313,6 +330,8 @@ resource "azurerm_api_management_api_policy" "openai" {
     azurerm_api_management_api_operation.openai,
     azapi_resource.openai_pool,
     azurerm_api_management_backend.openai,
+    azurerm_api_management_policy_fragment.traffic_inbound,
+    azurerm_api_management_policy_fragment.traffic_outbound,
   ]
 }
 
@@ -358,7 +377,11 @@ resource "azurerm_api_management_api_policy" "search" {
     calls_per_minute = var.search_calls_per_minute
   })
 
-  depends_on = [azurerm_api_management_api_operation.search]
+  depends_on = [
+    azurerm_api_management_api_operation.search,
+    azurerm_api_management_policy_fragment.traffic_inbound,
+    azurerm_api_management_policy_fragment.traffic_outbound,
+  ]
 }
 
 resource "azurerm_api_management_api" "content_safety" {
@@ -401,7 +424,11 @@ resource "azurerm_api_management_api_policy" "content_safety" {
     backend_id = azurerm_api_management_backend.content_safety[0].name
   })
 
-  depends_on = [azurerm_api_management_api_operation.content_safety]
+  depends_on = [
+    azurerm_api_management_api_operation.content_safety,
+    azurerm_api_management_policy_fragment.traffic_inbound,
+    azurerm_api_management_policy_fragment.traffic_outbound,
+  ]
 }
 
 resource "azurerm_api_management_api" "language" {
@@ -444,7 +471,11 @@ resource "azurerm_api_management_api_policy" "language" {
     calls_per_minute = var.language_calls_per_minute
   })
 
-  depends_on = [azurerm_api_management_api_operation.language]
+  depends_on = [
+    azurerm_api_management_api_operation.language,
+    azurerm_api_management_policy_fragment.traffic_inbound,
+    azurerm_api_management_policy_fragment.traffic_outbound,
+  ]
 }
 
 # --- Product + subscription for the Rabt API ---

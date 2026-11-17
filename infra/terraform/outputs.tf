@@ -69,8 +69,18 @@ output "foundry_app_insights_connection_id" {
 }
 
 output "foundry_apim_gateway_connection_id" {
-  description = "Foundry project ↔ APIM AI gateway connection ID."
+  description = "Foundry project ↔ APIM AI gateway connection ID (apim-rabt-pilot-sea)."
   value       = try(azapi_resource.foundry_apim_gateway[0].id, null)
+}
+
+output "foundry_apim_gateway_account_connection_id" {
+  description = "Foundry account ↔ APIM AI gateway connection ID."
+  value       = try(azapi_resource.foundry_apim_gateway_account[0].id, null)
+}
+
+output "insurer_a2a_gateway_url" {
+  description = "Demo insurer A2A via APIM AI gateway (agent card at /.well-known/agent.json)."
+  value       = var.enable_insurer_demo ? "${trimsuffix(module.apim.gateway_url, "/")}/insurer" : null
 }
 
 output "search_service_name" {

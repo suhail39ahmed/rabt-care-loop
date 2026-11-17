@@ -247,20 +247,20 @@ module "apim" {
   tags                           = local.tags
 }
 
-# Register APIM as the Foundry project AI gateway (portal/evals go through quotas).
-# After APIM so subscription key is available; avoids module cycle with backends.
-resource "azapi_resource" "foundry_apim_gateway" {
-  # Static count (known at plan): project + subscription-key auth mode.
+# Register Rabt APIM (apim-rabt-pilot-sea) as the Foundry AI gateway — account + project.
+# Name matches the APIM instance so the portal list is unambiguous (not foacpoc-apim).
+resource "azapi_resource" "foundry_apim_gateway_account" {
   count     = var.foundry_project_name != null && local.apim_subscription_required ? 1 : 0
-  type      = "Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview"
-  name      = "apim-ai-gateway"
-  parent_id = module.foundry.project_id
+  type      = "Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview"
+  name      = module.apim.name
+  parent_id = module.foundry.id
   body = {
     properties = {
       category      = "ApiManagement"
       target        = "${trimsuffix(module.apim.gateway_url, "/")}/openai"
       authType      = "ApiKey"
       isSharedToAll = true
+      isDefault     = true
       credentials = {
         key = module.apim.subscription_primary_key
       }
@@ -270,10 +270,41 @@ resource "azapi_resource" "foundry_apim_gateway" {
         deploymentInPath    = "true"
         inferenceAPIVersion = var.openai_api_version
         modelDiscovery      = "false"
+        GatewayName         = module.apim.name
       }
     }
   }
   schema_validation_enabled = false
+}
+
+resource "azapi_resource" "foundry_apim_gateway" {
+  # Static count (known at plan): project + subscription-key auth mode.
+  count     = var.foundry_project_name != null && local.apim_subscription_required ? 1 : 0
+  type      = "Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview"
+  name      = module.apim.name
+  parent_id = module.foundry.project_id
+  body = {
+    properties = {
+      category      = "ApiManagement"
+      target        = "${trimsuffix(module.apim.gateway_url, "/")}/openai"
+      authType      = "ApiKey"
+      isSharedToAll = true
+      isDefault     = true
+      credentials = {
+        key = module.apim.subscription_primary_key
+      }
+      metadata = {
+        ApiType             = "Azure"
+        ResourceId          = module.apim.id
+        deploymentInPath    = "true"
+        inferenceAPIVersion = var.openai_api_version
+        modelDiscovery      = "false"
+        GatewayName         = module.apim.name
+      }
+    }
+  }
+  schema_validation_enabled = false
+  depends_on                = [azapi_resource.foundry_apim_gateway_account]
 }
 
 # ---------------------------------------------------------------------------
@@ -433,19 +464,90 @@ module "hosting" {
 # ---------------------------------------------------------------------------
 # Diagnostics and governance
 # ---------------------------------------------------------------------------
+# Demo insurer A2A agent published on the AI gateway (HMAC auth; no subscription key).
+# Kept outside module.apim to avoid an apim↔hosting cycle (backend needs insurer FQDN).
+resource "azurerm_api_management_backend" "insurer_a2a" {
+  count               = var.enable_insurer_demo ? 1 : 0
+  name                = "insurer-a2a"
+  api_management_name = module.apim.name
+  resource_group_name = azurerm_resource_group.main.name
+  protocol            = "http"
+  url                 = module.hosting.insurer_url
+  description         = "Demo Health Insurance A2A agent (HMAC-signed)"
+
+  tls {
+    validate_certificate_chain = true
+    validate_certificate_name  = true
+  }
+}
+
+resource "azurerm_api_management_api" "insurer_a2a" {
+  count                 = var.enable_insurer_demo ? 1 : 0
+  name                  = "insurer-a2a"
+  api_management_name   = module.apim.name
+  resource_group_name   = azurerm_resource_group.main.name
+  revision              = "1"
+  display_name          = "Demo insurer A2A (Rabt)"
+  path                  = "insurer"
+  protocols             = ["https"]
+  subscription_required = false
+}
+
+resource "azurerm_api_management_api_operation" "insurer_a2a" {
+  for_each = var.enable_insurer_demo ? {
+    agent_card       = { method = "GET", url = "/.well-known/agent.json", display = "Agent card" }
+    healthz          = { method = "GET", url = "/healthz", display = "Health" }
+    eligibility      = { method = "POST", url = "/a2a/eligibility", display = "A2A eligibility" }
+    payment_options  = { method = "POST", url = "/a2a/payment-options", display = "A2A payment options" }
+    claims           = { method = "POST", url = "/a2a/claims", display = "A2A claims" }
+  } : {}
+
+  operation_id        = replace(each.key, "_", "-")
+  api_name            = azurerm_api_management_api.insurer_a2a[0].name
+  api_management_name = module.apim.name
+  resource_group_name = azurerm_resource_group.main.name
+  display_name        = each.value.display
+  method              = each.value.method
+  url_template        = each.value.url
+}
+
+resource "azurerm_api_management_api_policy" "insurer_a2a" {
+  count               = var.enable_insurer_demo ? 1 : 0
+  api_name            = azurerm_api_management_api.insurer_a2a[0].name
+  api_management_name = module.apim.name
+  resource_group_name = azurerm_resource_group.main.name
+
+  xml_content = templatefile("${path.module}/modules/apim/policies/insurer-a2a-api.xml.tftpl", {
+    backend_id = azurerm_api_management_backend.insurer_a2a[0].name
+  })
+
+  depends_on = [
+    azurerm_api_management_api_operation.insurer_a2a,
+    module.apim,
+  ]
+}
+
 module "diagnostics" {
   source = "./modules/diagnostics"
 
   log_analytics_workspace_id = module.monitoring.log_analytics_workspace_id
-  targets = {
-    foundry         = { resource_id = module.foundry.id }
-    search          = { resource_id = module.search.id }
-    keyvault        = { resource_id = module.keyvault.id }
-    apim            = { resource_id = module.apim.id }
-    storage-blob    = { resource_id = module.storage.blob_service_id, metric_category = "Transaction" }
-    storage-account = { resource_id = module.storage.id, metric_category = "Transaction", logs = false }
-    registry        = { resource_id = module.hosting.registry_id }
-  }
+  targets = merge(
+    {
+      foundry         = { resource_id = module.foundry.id }
+      search          = { resource_id = module.search.id }
+      keyvault        = { resource_id = module.keyvault.id }
+      apim            = { resource_id = module.apim.id }
+      # App Insights is workspace-based (already lands in LAW); APIM logger + Foundry AppInsights connection cover AI telemetry.
+      storage-blob    = { resource_id = module.storage.blob_service_id, metric_category = "Transaction" }
+      storage-account = { resource_id = module.storage.id, metric_category = "Transaction", logs = false }
+      registry        = { resource_id = module.hosting.registry_id }
+      cae             = { resource_id = module.hosting.environment_id }
+      api-app         = { resource_id = module.hosting.app_ids.api }
+      web-app         = { resource_id = module.hosting.app_ids.web }
+    },
+    var.enable_insurer_demo ? { insurer-app = { resource_id = module.hosting.app_ids.insurer } } : {},
+    var.enable_semantic_cache ? { redis = { resource_id = module.redis[0].id } } : {}
+  )
 }
 
 module "governance" {

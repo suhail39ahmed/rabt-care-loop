@@ -17,9 +17,10 @@
     </choose>
 %{ endif ~}
   </inbound>
+  <!-- APIM allows only one top-level policy under <backend>; nest marker inside retry. -->
   <backend>
-    <set-variable name="rabt-backend-called" value="true" />
     <retry condition="@(context.Response.StatusCode == 429 || context.Response.StatusCode >= 500)" count="2" interval="1" delta="1" max-interval="8" first-fast-retry="true">
+      <set-variable name="rabt-backend-called" value="true" />
       <forward-request buffer-request-body="true" timeout="60" />
     </retry>
   </backend>

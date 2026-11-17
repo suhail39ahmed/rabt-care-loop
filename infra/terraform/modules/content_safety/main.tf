@@ -17,8 +17,8 @@ resource "azurerm_cognitive_account" "this" {
     type = "SystemAssigned"
   }
 
+  # bypass is only valid for OpenAI / AIServices / TextAnalytics — ContentSafety rejects it.
   network_acls {
     default_action = var.network_default_action
-    bypass         = "AzureServices"
   }
 }

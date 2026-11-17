@@ -1,7 +1,11 @@
-# Pilot plan — 12 weeks (#65)
+# Pilot plan — 12 weeks (#65, refreshed #146)
 
-**Programme:** HbA1c follow-up at one primary-care network (illustrative).  
-**Safety path:** deterministic rules + HITL; LLM optional and kill-switched.
+**NOW (demo):** synthetic care loop on the live site — FIT cashless book + coordinator board.  
+**NEXT (ask):** **one Abu Dhabi screening programme + one insurer**, one clinic / one pathway (illustrative: FIT or HbA1c follow-up). Not a national scale story.
+
+**Safety path:** deterministic rules + HITL; LLM optional and kill-switched. **No training on user data** — synthetic demo + clinician-approved KB only.
+
+**Stress-test homework (Stephan):** score use / build safely / lasts 1–5; lowest score is the pilot focus (today: path-to-partner + safe AI ops).
 
 ## Phases
 

@@ -23,7 +23,7 @@ Rabt API ──► APIM AI gateway ──► Foundry (OpenAI + Content Safety + 
 
 Enforced on **APIM** (not as a second Foundry control plane):
 
-- OpenAI: `azure-openai-token-limit` (`apim_tokens_per_minute`)
+- OpenAI: `llm-token-limit` (`apim_tokens_per_minute`)
 - Content Safety / Language / Search: `rate-limit-by-key` on those APIs
 - Deployment SKU `capacity` on Foundry model deployments (Azure-side TPM)
 

@@ -5,19 +5,20 @@
     <set-header name="api-key" exists-action="delete" />
     <authentication-managed-identity resource="https://cognitiveservices.azure.com" />
     <set-backend-service backend-id="${pool_backend_id}" />
-    <azure-openai-token-limit counter-key="@(context.Subscription?.Id ?? context.Request.IpAddress)" tokens-per-minute="${tokens_per_minute}" estimate-prompt-tokens="false" remaining-tokens-header-name="x-rabt-remaining-tokens" />
-    <azure-openai-emit-token-metric namespace="rabt-ai-gateway">
+    <!-- llm-* policies work on http APIs in front of Foundry/OpenAI; azure-openai-* need api_type=openai (not in our azurerm pin). -->
+    <llm-token-limit counter-key="@(context.Subscription?.Id ?? context.Request.IpAddress)" tokens-per-minute="${tokens_per_minute}" estimate-prompt-tokens="false" remaining-tokens-header-name="x-rabt-remaining-tokens" />
+    <llm-emit-token-metric namespace="rabt-ai-gateway">
       <dimension name="API ID" />
       <dimension name="Operation ID" />
       <dimension name="Task" value="@(context.Request.Headers.GetValueOrDefault(&quot;x-rabt-task&quot;, &quot;unknown&quot;))" />
       <dimension name="Deployment" value="@(context.Request.MatchedParameters.GetValueOrDefault(&quot;deployment-id&quot;, &quot;unknown&quot;))" />
-    </azure-openai-emit-token-metric>
+    </llm-emit-token-metric>
 %{ if semantic_cache ~}
     <choose>
       <when condition="@(context.Request.Headers.GetValueOrDefault(&quot;x-rabt-cacheable&quot;, &quot;false&quot;) == &quot;true&quot;)">
-        <azure-openai-semantic-cache-lookup score-threshold="${cache_score_threshold}" embeddings-backend-id="${embeddings_backend_id}" embeddings-backend-auth="system-assigned">
+        <llm-semantic-cache-lookup score-threshold="${cache_score_threshold}" embeddings-backend-id="${embeddings_backend_id}" embeddings-backend-auth="system-assigned">
           <vary-by>@(context.Request.Headers.GetValueOrDefault(&quot;x-rabt-cache-scope&quot;, &quot;none&quot;))</vary-by>
-        </azure-openai-semantic-cache-lookup>
+        </llm-semantic-cache-lookup>
       </when>
     </choose>
 %{ endif ~}
@@ -42,7 +43,7 @@
 %{ if semantic_cache ~}
     <choose>
       <when condition="@(context.Request.Headers.GetValueOrDefault(&quot;x-rabt-cacheable&quot;, &quot;false&quot;) == &quot;true&quot;)">
-        <azure-openai-semantic-cache-store duration="${cache_ttl_seconds}" />
+        <llm-semantic-cache-store duration="${cache_ttl_seconds}" />
       </when>
     </choose>
 %{ endif ~}

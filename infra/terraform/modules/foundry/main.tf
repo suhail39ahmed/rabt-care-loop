@@ -50,6 +50,7 @@ resource "azapi_resource" "project" {
   type      = "Microsoft.CognitiveServices/accounts/projects@2025-04-01-preview"
   name      = var.project_name
   parent_id = azurerm_cognitive_account.this.id
+  location  = var.location
   body = {
     properties = {
       displayName = var.project_display_name
@@ -61,6 +62,7 @@ resource "azapi_resource" "project" {
 }
 
 # Account-level App Insights (Foundry portal tracing + evals → same Appi as APIM/API).
+# API requires the full connection string (instrumentation key alone is rejected).
 resource "azapi_resource" "app_insights_connection" {
   count     = var.enable_application_insights_connection ? 1 : 0
   type      = "Microsoft.CognitiveServices/accounts/connections@2025-06-01"
@@ -80,7 +82,7 @@ resource "azapi_resource" "app_insights_connection" {
         ResourceId = var.application_insights_id
       }
       credentials = {
-        key = var.application_insights_instrumentation_key
+        key = var.application_insights_connection_string
       }
     }
   }

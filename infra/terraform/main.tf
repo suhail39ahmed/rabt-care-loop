@@ -148,18 +148,18 @@ module "search" {
 module "foundry" {
   source = "./modules/foundry"
 
-  name                                     = local.names.foundry
-  resource_group_name                      = azurerm_resource_group.main.name
-  location                                 = local.locations.foundry
-  deployments                              = var.openai_deployments
-  local_auth_enabled                       = !var.disable_local_auth
-  public_network_access_enabled            = !local.private
-  network_default_action                   = local.private ? "Deny" : "Allow"
-  project_name                             = var.foundry_project_name
-  enable_application_insights_connection   = true
-  application_insights_id                  = module.monitoring.app_insights_id
-  application_insights_instrumentation_key = module.monitoring.app_insights_instrumentation_key
-  tags                                     = local.tags
+  name                                   = local.names.foundry
+  resource_group_name                    = azurerm_resource_group.main.name
+  location                               = local.locations.foundry
+  deployments                            = var.openai_deployments
+  local_auth_enabled                     = !var.disable_local_auth
+  public_network_access_enabled          = !local.private
+  network_default_action                 = local.private ? "Deny" : "Allow"
+  project_name                           = var.foundry_project_name
+  enable_application_insights_connection = true
+  application_insights_id                = module.monitoring.app_insights_id
+  application_insights_connection_string = module.monitoring.app_insights_connection_string
+  tags                                   = local.tags
 }
 
 module "redis" {
@@ -206,7 +206,7 @@ module "private_endpoints" {
 
 # ---------------------------------------------------------------------------
 # AI gateway (APIM): only door to Foundry (OpenAI / CS / Language) and AI Search.
-# Quotas: azure-openai-token-limit + rate-limit-by-key on CS/Language/Search policies.
+# Quotas: llm-token-limit on OpenAI + rate-limit-by-key on CS/Language/Search policies.
 # ---------------------------------------------------------------------------
 module "apim" {
   source = "./modules/apim"

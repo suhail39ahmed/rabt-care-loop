@@ -83,8 +83,8 @@ variable "application_insights_id" {
   default     = ""
 }
 
-variable "application_insights_instrumentation_key" {
-  description = "Application Insights instrumentation key for the Foundry connection."
+variable "application_insights_connection_string" {
+  description = "Application Insights connection string for the Foundry AppInsights connection (required by the API)."
   type        = string
   default     = ""
   sensitive   = true

@@ -51,6 +51,10 @@ resource "azapi_resource" "project" {
   name      = var.project_name
   parent_id = azurerm_cognitive_account.this.id
   location  = var.location
+  # Project itself needs SystemAssigned MI (account MI alone is not enough for this API).
+  identity {
+    type = "SystemAssigned"
+  }
   body = {
     properties = {
       displayName = var.project_display_name
@@ -59,6 +63,7 @@ resource "azapi_resource" "project" {
   }
   schema_validation_enabled = false
   locks                     = [azurerm_cognitive_account.this.id]
+  depends_on                = [azurerm_cognitive_account.this]
 }
 
 # Account-level App Insights (Foundry portal tracing + evals → same Appi as APIM/API).

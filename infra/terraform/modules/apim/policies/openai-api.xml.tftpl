@@ -5,14 +5,8 @@
     <set-header name="api-key" exists-action="delete" />
     <authentication-managed-identity resource="https://cognitiveservices.azure.com" />
     <set-backend-service backend-id="${pool_backend_id}" />
-    <!-- llm-* policies work on http APIs in front of Foundry/OpenAI; azure-openai-* need api_type=openai (not in our azurerm pin). -->
-    <llm-token-limit counter-key="@(context.Subscription?.Id ?? context.Request.IpAddress)" tokens-per-minute="${tokens_per_minute}" estimate-prompt-tokens="false" remaining-tokens-header-name="x-rabt-remaining-tokens" />
-    <llm-emit-token-metric namespace="rabt-ai-gateway">
-      <dimension name="API ID" />
-      <dimension name="Operation ID" />
-      <dimension name="Task" value="@(context.Request.Headers.GetValueOrDefault(&quot;x-rabt-task&quot;, &quot;unknown&quot;))" />
-      <dimension name="Deployment" value="@(context.Request.MatchedParameters.GetValueOrDefault(&quot;deployment-id&quot;, &quot;unknown&quot;))" />
-    </llm-emit-token-metric>
+    <!-- Request-rate cap (true TPM needs openai-typed API + llm-token-limit; tokens_per_minute reserved for that). -->
+    <rate-limit-by-key calls="120" renewal-period="60" counter-key="@(context.Subscription?.Id ?? context.Request.IpAddress)" />
 %{ if semantic_cache ~}
     <choose>
       <when condition="@(context.Request.Headers.GetValueOrDefault(&quot;x-rabt-cacheable&quot;, &quot;false&quot;) == &quot;true&quot;)">
@@ -24,7 +18,6 @@
 %{ endif ~}
   </inbound>
   <backend>
-    <!-- Only runs on a cache miss: the semantic cache lookup returns hits before the backend. -->
     <set-variable name="rabt-backend-called" value="true" />
     <retry condition="@(context.Response.StatusCode == 429 || context.Response.StatusCode >= 500)" count="2" interval="1" delta="1" max-interval="8" first-fast-retry="true">
       <forward-request buffer-request-body="true" timeout="60" />

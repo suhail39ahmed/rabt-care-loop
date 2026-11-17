@@ -174,7 +174,7 @@ variable "redis" {
 variable "semantic_cache_score_threshold" {
   description = "Semantic cache score threshold (lower = stricter)."
   type        = number
-  default     = 0.05
+  default     = 0.15
 }
 
 variable "semantic_cache_ttl_seconds" {

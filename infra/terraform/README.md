@@ -1,6 +1,6 @@
 # Rabt – Azure infrastructure (Terraform)
 
-One Terraform stack provisions everything Rabt needs on Azure: the app hosting (Container Apps + ACR), the AI services (Azure OpenAI, AI Search, Content Safety, Azure AI Language for PII detection, optional Redis semantic cache), the APIM AI gateway in front of them, and the security baseline.
+One Terraform stack provisions everything Rabt needs on Azure: the app hosting (Container Apps + ACR), the AI services (Azure OpenAI, AI Search, Content Safety, Azure AI Language for PII detection, Microsoft Foundry hub, optional Redis semantic cache), the APIM AI gateway in front of them, and the security baseline.
 GitHub Actions runs it (`.github/workflows/infra.yml`) and deploys the app images (`.github/workflows/deploy.yml`). See [First-time bootstrap](#first-time-bootstrap) for the few things created by hand.
 
 ```
@@ -46,6 +46,7 @@ infra/terraform/
     ├── storage            KB document storage (no shared keys, TLS 1.2, versioning)
     ├── openai             Azure OpenAI accounts + router deployments
     ├── search             AI Search (RBAC only)
+    ├── foundry            Microsoft Foundry hub (AIServices + pilot project)
     ├── content_safety     Content Safety (Prompt Shields)
     ├── language           Azure AI Language (PII detection, layered after the regex scrubber)
     ├── redis              Azure Managed Redis for the APIM semantic cache (optional)
@@ -66,6 +67,7 @@ infra/terraform/
 | Azure OpenAI | `oai-rabt-pilot-aue` (failover account: `oai-rabt-pilot-<region>-2`) |
 | AI Search | `srch-rabt-pilot-sea` |
 | Content Safety | `cs-rabt-pilot-aue` |
+| Foundry (AIServices) | `aif-rabt-pilot-aue` (`enable_foundry`, project `rabt-pilot`) |
 | Azure AI Language (PII) | `lang-rabt-pilot-sea` |
 | Key Vault | `kv-rabt-pilot-sea` |
 | Storage (KB docs) | `strabtpilotseakb` |

@@ -23,6 +23,7 @@ locals {
     openai         = lookup(var.location_overrides, "openai", var.location)
     content_safety = lookup(var.location_overrides, "content_safety", var.location)
     language       = lookup(var.location_overrides, "language", var.location)
+    foundry        = lookup(var.location_overrides, "foundry", lookup(var.location_overrides, "content_safety", var.location))
     apim           = lookup(var.location_overrides, "apim", var.location)
     redis          = lookup(var.location_overrides, "redis", var.location)
     search         = lookup(var.location_overrides, "search", var.location)
@@ -44,6 +45,7 @@ locals {
     storage_kb     = "st${local.flat}kb"
     search         = "srch-${local.base}${local.sfx}"
     content_safety = "cs-${var.workload}-${var.environment}-${lookup(local.region_codes, local.locations.content_safety, "x")}${local.sfx}"
+    foundry        = "aif-${var.workload}-${var.environment}-${lookup(local.region_codes, local.locations.foundry, "x")}${local.sfx}"
     redis          = "redis-${local.base}${local.sfx}"
     language       = "lang-${local.base}${local.sfx}"
     log_analytics  = "log-${local.base}"

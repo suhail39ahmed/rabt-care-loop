@@ -158,6 +158,20 @@ module "search" {
   tags                          = local.tags
 }
 
+module "foundry" {
+  source = "./modules/foundry"
+  count  = var.enable_foundry ? 1 : 0
+
+  name                          = local.names.foundry
+  resource_group_name           = azurerm_resource_group.main.name
+  location                      = local.locations.foundry
+  local_auth_enabled            = !var.disable_local_auth
+  public_network_access_enabled = !local.private
+  network_default_action        = local.private ? "Deny" : "Allow"
+  project_name                  = var.foundry_project_name
+  tags                          = local.tags
+}
+
 module "content_safety" {
   source = "./modules/content_safety"
   count  = var.enable_content_safety ? 1 : 0
@@ -222,6 +236,9 @@ module "private_endpoints" {
     } : {},
     var.enable_language_pii ? {
       language = { resource_id = module.language[0].id, subresource = "account", dns_zone_id = module.network[0].private_dns_zone_ids["cognitive"] }
+    } : {},
+    var.enable_foundry ? {
+      foundry = { resource_id = module.foundry[0].id, subresource = "account", dns_zone_id = module.network[0].private_dns_zone_ids["cognitive"] }
     } : {},
     var.enable_semantic_cache ? {
       redis = { resource_id = module.redis[0].id, subresource = "redisEnterprise", dns_zone_id = module.network[0].private_dns_zone_ids["redis"] }
@@ -303,6 +320,9 @@ module "rbac" {
     } : {},
     var.enable_language_pii ? {
       "apim-language" = { scope = module.language[0].id, role = "Cognitive Services User", principal_id = module.apim.principal_id, principal_type = "ServicePrincipal" }
+    } : {},
+    var.enable_foundry ? {
+      "apim-foundry" = { scope = module.foundry[0].id, role = "Cognitive Services User", principal_id = module.apim.principal_id, principal_type = "ServicePrincipal" }
     } : {},
     var.grant_deployer_data_roles ? {
       "deployer-kv-secrets"     = { scope = module.keyvault.id, role = "Key Vault Secrets Officer", principal_id = data.azurerm_client_config.current.object_id }
@@ -455,7 +475,8 @@ module "diagnostics" {
       registry        = { resource_id = module.hosting.registry_id }
     },
     var.enable_content_safety ? { contentsafety = { resource_id = module.content_safety[0].id } } : {},
-    var.enable_language_pii ? { language = { resource_id = module.language[0].id } } : {}
+    var.enable_language_pii ? { language = { resource_id = module.language[0].id } } : {},
+    var.enable_foundry ? { foundry = { resource_id = module.foundry[0].id } } : {}
   )
 }
 

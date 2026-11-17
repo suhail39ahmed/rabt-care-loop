@@ -29,6 +29,10 @@ Every model call goes through one path: `services/agents/common/llm_client.py` (
 - Small tasks move to the strong tier when their input exceeds `LLM_ROUTER_ESCALATE_CHARS` (default 6000).
 - Crisis detection never uses a model.
 
+## Foundry hub
+
+Microsoft Foundry (`enable_foundry`, `docs/foundry-ai.md`) is the portal surface for Content Safety, Language PII and evals. Diagnostics from the Foundry account go to the same Log Analytics workspace. **APIM remains the production gateway**; Foundry does not replace token limits or body-safe logging.
+
 ## Where to see it
 
 - **API:** `GET /ai/metrics`, also shown on the admin page. It reports, per replica:

@@ -17,6 +17,7 @@ output "names" {
     openai         = local.names.openai
     content_safety = var.enable_content_safety ? local.names.content_safety : null
     language       = var.enable_language_pii ? local.names.language : null
+    foundry        = var.enable_foundry ? local.names.foundry : null
     log_analytics  = local.names.log_analytics
     app_insights   = local.names.app_insights
     registry       = local.names.registry
@@ -53,6 +54,16 @@ output "openai_deployments" {
 output "openai_endpoints" {
   description = "Direct Azure OpenAI endpoints (private when private networking is on; the app uses APIM)."
   value       = module.openai.endpoints
+}
+
+output "foundry_endpoint" {
+  description = "Microsoft Foundry (AIServices) endpoint for portal/evals; app traffic still uses APIM."
+  value       = var.enable_foundry ? module.foundry[0].endpoint : null
+}
+
+output "foundry_project_id" {
+  description = "Foundry project resource ID (null if Foundry or project disabled)."
+  value       = var.enable_foundry ? module.foundry[0].project_id : null
 }
 
 output "search_service_name" {

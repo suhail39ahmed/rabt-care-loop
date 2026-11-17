@@ -1,6 +1,6 @@
 # Pilot environment sizing. Committed on purpose: no secrets, no personal data.
 # Personal values (subscription, emails, your IP) go in terraform.tfvars locally (git-ignored)
-# or in GitHub variables for the workflows (TF_VAR_*). See README.md, First-time bootstrap.
+# or in GitHub repository secrets for the workflows (TF_VAR_*). See README.md, First-time bootstrap.
 
 workload    = "rabt"
 environment = "pilot"

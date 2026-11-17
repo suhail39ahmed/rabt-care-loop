@@ -30,6 +30,7 @@ infra/terraform/
 ├── locals.tf                       naming convention, regions, tags
 ├── main.tf                         composition only: resource group, guardrails, module calls
 ├── outputs.tf                      names, URLs, security_summary (no secrets)
+├── imports.tf                      optional import blocks for hand-created pilot resources (off by default)
 ├── environments/pilot.tfvars       committed sizing for the pilot (no secrets, no personal data)
 ├── terraform.tfvars.example        personal values for local runs (subscription, emails, your IP)
 ├── backend.hcl.example             remote state location
@@ -120,26 +121,58 @@ APIM, Key Vault, Storage, AI Search, Azure OpenAI and ACR names are global. If o
 Three things exist outside this stack, because Terraform needs them before it can run:
 
 1. **State storage**: `rg-rabt-tfstate-sea`, storage account `strabttfstatesea` (Standard_ZRS, TLS 1.2, no public blob access, shared keys off) and container `tfstate`. Commands are in `backend.hcl.example`.
-2. **A GitHub OIDC identity**: an Entra app registration with two federated credentials for this repo, `pull_request` (plan) and `environment:pilot` (apply / deploy).
-   - On the subscription it needs Contributor and Role Based Access Control Administrator, because the stack creates role assignments.
-   - On the state account it needs Storage Blob Data Contributor.
-   - No client secret.
+2. **A deployment service principal**: an Entra app registration with a client secret, used by both workflows.
+   - On the subscription it needs **Contributor** and **Role Based Access Control Administrator**, because the stack creates role assignments.
+   - On the state account `strabttfstatesea` it needs **Storage Blob Data Contributor** (state uses Entra ID auth, shared keys are off).
+   - Client secrets expire (the portal default is 6 months, the maximum is 24). Note the expiry date, create the new secret before it, update `AZURE_CLIENT_SECRET`, then delete the old secret. An expired secret makes the Azure jobs fail at login.
+   - OIDC with federated credentials is optional. To use it, switch `azure/login` to `client-id` / `tenant-id` / `subscription-id`, set `ARM_USE_OIDC=true` and add `id-token: write`.
+
+   ```bash
+   SUB=<subscription-id>
+   APP_ID=<existing app (client) ID>
+   SP_ID=$(az ad sp show --id "$APP_ID" --query id -o tsv)
+   az role assignment create --assignee-object-id "$SP_ID" --assignee-principal-type ServicePrincipal \
+     --role "Contributor" --scope "/subscriptions/$SUB"
+   az role assignment create --assignee-object-id "$SP_ID" --assignee-principal-type ServicePrincipal \
+     --role "Role Based Access Control Administrator" --scope "/subscriptions/$SUB"
+   az role assignment create --assignee-object-id "$SP_ID" --assignee-principal-type ServicePrincipal \
+     --role "Storage Blob Data Contributor" \
+     --scope "$(az storage account show -n strabttfstatesea -g rg-rabt-tfstate-sea --query id -o tsv)"
+   ```
+
 3. **GitHub settings**:
    - An environment named `pilot` with required reviewers.
-   - Repository variables:
+   - Repository **secrets** (Settings → Secrets and variables → Actions → Secrets). No repository variables are used.
 
-| Variable | Example | Used by |
+| Secret | Value | Used by |
 |---|---|---|
-| `AZURE_CLIENT_ID` | app (client) ID of the OIDC app | infra, deploy |
+| `AZURE_CLIENT_ID` | app (client) ID of the service principal | infra, deploy |
+| `AZURE_CLIENT_SECRET` | its client secret value | infra, deploy |
 | `AZURE_TENANT_ID` | Entra tenant ID | infra, deploy |
 | `AZURE_SUBSCRIPTION_ID` | subscription ID | infra, deploy |
 | `APIM_PUBLISHER_EMAIL` | `you@example.com` | infra |
 | `BUDGET_CONTACT_EMAILS` | `["you@example.com"]` (JSON list) | infra |
-| `DEPLOY_ENABLED` | `true`, after the first successful apply | deploy |
 | `TF_STATE_RESOURCE_GROUP` / `TF_STATE_STORAGE_ACCOUNT` / `TF_STATE_CONTAINER` / `TF_STATE_KEY` | optional; default to the names above | infra |
-| `AZURE_RESOURCE_GROUP` / `ACR_NAME` / `API_APP_NAME` / `WEB_APP_NAME` | optional; default to the pilot names | deploy |
 
-Until the variables are set, both workflows skip their Azure jobs and stay green.
+```bash
+gh secret set AZURE_CLIENT_ID       # paste when prompted, so values stay out of shell history
+gh secret set AZURE_CLIENT_SECRET
+gh secret set AZURE_TENANT_ID
+gh secret set AZURE_SUBSCRIPTION_ID
+gh secret set APIM_PUBLISHER_EMAIL
+gh secret set BUDGET_CONTACT_EMAILS
+```
+
+Until these secrets exist, both workflows skip their Azure jobs and stay green. `deploy.yml` also exits early with a notice while the registry and API app do not exist yet, so run `infra` (apply) first.
+
+### Adopting resources created by hand
+
+If some pilot resources were created in the portal before Terraform ran, import them instead of letting `apply` fail on "already exists". `imports.tf` holds `import` blocks for the resource group, APIM, Log Analytics workspace, VNet and container registry, switched off by default (`import_existing = false`, so `terraform test` with mock providers is unaffected).
+
+- In GitHub: run **infra** manually with `action = apply` and `import_existing` ticked.
+- Locally: `terraform plan -var-file=environments/pilot.tfvars -var import_existing=true`, then apply.
+
+Read the plan first: settings that differ from the code (SKU, address space, APIM networking) show up as updates, and anything marked "must be replaced" should be fixed in the portal or the tfvars before applying.
 
 ## Remote state
 
@@ -150,7 +183,7 @@ cp backend.hcl.example backend.hcl            # values already match the naming 
 terraform init -backend-config=backend.hcl
 ```
 
-The GitHub workflow passes the same four values from repository variables (`TF_STATE_RESOURCE_GROUP`, `TF_STATE_STORAGE_ACCOUNT`, `TF_STATE_CONTAINER`, `TF_STATE_KEY`).
+The GitHub workflow uses the same four values. They are built in; to override them, add the optional repository secrets `TF_STATE_RESOURCE_GROUP`, `TF_STATE_STORAGE_ACCOUNT`, `TF_STATE_CONTAINER` and `TF_STATE_KEY`.
 
 ## Run locally
 

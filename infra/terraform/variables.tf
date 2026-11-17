@@ -181,12 +181,6 @@ variable "openai_deployments" {
   }
 }
 
-variable "openai_secondary_location" {
-  description = "Deprecated no-op (single Foundry backend). Kept so older tfvars do not fail."
-  type        = string
-  default     = null
-}
-
 variable "disable_local_auth" {
   description = "Disable API keys on Foundry and AI Search (Entra ID / managed identity only). Rabt reaches AI through APIM."
   type        = bool

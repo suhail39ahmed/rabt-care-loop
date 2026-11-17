@@ -19,12 +19,12 @@ locals {
   private = var.enable_private_networking
 
   locations = {
-    primary  = var.location
+    primary = var.location
     # Foundry hosts OpenAI + Content Safety + Language; prefer foundry override, then legacy openai/cs keys.
-    foundry  = lookup(var.location_overrides, "foundry", lookup(var.location_overrides, "openai", lookup(var.location_overrides, "content_safety", var.location)))
-    apim     = lookup(var.location_overrides, "apim", var.location)
-    redis    = lookup(var.location_overrides, "redis", var.location)
-    search   = lookup(var.location_overrides, "search", var.location)
+    foundry = lookup(var.location_overrides, "foundry", lookup(var.location_overrides, "openai", lookup(var.location_overrides, "content_safety", var.location)))
+    apim    = lookup(var.location_overrides, "apim", var.location)
+    redis   = lookup(var.location_overrides, "redis", var.location)
+    search  = lookup(var.location_overrides, "search", var.location)
   }
 
   all_locations = distinct(values(local.locations))

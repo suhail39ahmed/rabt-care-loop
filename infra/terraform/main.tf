@@ -148,13 +148,13 @@ module "search" {
 module "foundry" {
   source = "./modules/foundry"
 
-  name                                      = local.names.foundry
-  resource_group_name                       = azurerm_resource_group.main.name
-  location                                  = local.locations.foundry
-  deployments                               = var.openai_deployments
-  local_auth_enabled                        = !var.disable_local_auth
-  public_network_access_enabled             = !local.private
-  network_default_action                    = local.private ? "Deny" : "Allow"
+  name                                     = local.names.foundry
+  resource_group_name                      = azurerm_resource_group.main.name
+  location                                 = local.locations.foundry
+  deployments                              = var.openai_deployments
+  local_auth_enabled                       = !var.disable_local_auth
+  public_network_access_enabled            = !local.private
+  network_default_action                   = local.private ? "Deny" : "Allow"
   project_name                             = var.foundry_project_name
   enable_application_insights_connection   = true
   application_insights_id                  = module.monitoring.app_insights_id
@@ -186,8 +186,8 @@ module "private_endpoints" {
     {
       # One PE; both DNS zones so *.openai.azure.com and *.cognitiveservices.azure.com resolve privately.
       foundry = {
-        resource_id  = module.foundry.id
-        subresource  = "account"
+        resource_id = module.foundry.id
+        subresource = "account"
         dns_zone_ids = [
           module.network[0].private_dns_zone_ids["openai"],
           module.network[0].private_dns_zone_ids["cognitive"],

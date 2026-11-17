@@ -148,8 +148,16 @@ jobs:
             sleep 10
           done
           cat /tmp/health.json
-          curl -fsS -o /dev/null "$WEB_URL/"
-          curl -fsS -o /dev/null "$WEB_URL/board"
+          # Web revision can lag the image update; wait before failing the job.
+          for i in $(seq 1 30); do
+            if curl -fsS -o /dev/null "$WEB_URL/" && curl -fsS -o /dev/null "$WEB_URL/board"; then
+              echo "web smoke ok"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Web smoke timed out on $WEB_URL"
+          exit 1
 
       - name: Summary
         if: steps.infra.outputs.ready == 'true'

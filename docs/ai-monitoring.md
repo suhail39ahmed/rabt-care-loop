@@ -7,7 +7,7 @@ Every model call goes through one path: `services/agents/common/llm_client.py` (
 | Step | Where | Notes |
 |---|---|---|
 | Kill switch | `llm_client.ai_enabled()` | `AI_ENABLED=false` (Terraform `ai_enabled`): no call, approved templates only. Counted as `kill_switch_skips`. |
-| PII scrub | `agents/common/pii.py` | Always applied to the system and user text. See the list in the module docstring. |
+| PII scrub | `agents/common/pii.py`, `language_pii.py` | Regex always, on system, user and source text. Then Azure AI Language PII when `LANGUAGE_PII_ENABLED` (Terraform `enable_language_pii`). If Language fails, the call is skipped and counted as `pii_fail_closed`; `language_pii_errors` and `language_pii_calls` are also tracked. |
 | Prompt Shields | `agents/common/injection.py`, `content_safety.py` | For untrusted input (`rag_answer`, `classify_concern`, `translate`): deny-list, then Prompt Shields through APIM. Fails closed. |
 | Prompt registry | `agents/common/prompts.py`, `data/prompts/*.yaml` | Only `reviewed: true` prompts are used; `id@version#sha` is sent as `x-rabt-prompt`. |
 | Router | `agents/common/llm_router.py` | Small model first; per-task `max_tokens` and input cap; escalation on long input; one failover to the other tier. |
@@ -51,7 +51,7 @@ traces | where timestamp > ago(24h) and customDimensions.ai_event == "llm_call"
 customMetrics | where name == "SemanticCacheRequests" | summarize n=sum(valueSum) by result=tostring(customDimensions.Result)
 
 // safety and routing events
-traces | where customDimensions.ai_event in ("pii_redactions","prompt_shield_blocks","content_safety_blocks","injection_blocks","failovers","budget_refusals")
+traces | where customDimensions.ai_event in ("pii_redactions","pii_fail_closed","language_pii_errors","prompt_shield_blocks","content_safety_blocks","injection_blocks","failovers","budget_refusals")
 | summarize count() by tostring(customDimensions.ai_event), bin(timestamp, 1h)
 ```
 

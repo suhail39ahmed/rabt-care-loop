@@ -1,0 +1,31 @@
+<policies>
+  <inbound>
+    <base />
+    ${auth}
+    <rate-limit-by-key calls="${calls_per_minute}" renewal-period="60" counter-key="@(context.Subscription?.Id ?? context.Request.IpAddress)" />
+    <choose>
+      <when condition="@(!context.Request.Url.Path.EndsWith(&quot;:analyze-text&quot;))">
+        <return-response>
+          <set-status code="403" reason="Only :analyze-text is allowed" />
+        </return-response>
+      </when>
+      <when condition="@((string)context.Request.Body.As&lt;Newtonsoft.Json.Linq.JObject&gt;(preserveContent: true)[&quot;kind&quot;] != &quot;PiiEntityRecognition&quot;)">
+        <return-response>
+          <set-status code="403" reason="Only PiiEntityRecognition is allowed" />
+        </return-response>
+      </when>
+    </choose>
+    <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+    <authentication-managed-identity resource="https://cognitiveservices.azure.com" />
+    <set-backend-service backend-id="${backend_id}" />
+  </inbound>
+  <backend>
+    <forward-request timeout="10" />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

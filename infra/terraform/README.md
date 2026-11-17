@@ -1,6 +1,6 @@
 # Rabt – Azure infrastructure (Terraform)
 
-One Terraform stack provisions everything Rabt needs on Azure: the app hosting (Container Apps + ACR), the AI services (Azure OpenAI, AI Search, Content Safety, optional Redis semantic cache), the APIM AI gateway in front of them, and the security baseline.
+One Terraform stack provisions everything Rabt needs on Azure: the app hosting (Container Apps + ACR), the AI services (Azure OpenAI, AI Search, Content Safety, Azure AI Language for PII detection, optional Redis semantic cache), the APIM AI gateway in front of them, and the security baseline.
 GitHub Actions runs it (`.github/workflows/infra.yml`) and deploys the app images (`.github/workflows/deploy.yml`). See [First-time bootstrap](#first-time-bootstrap) for the few things created by hand.
 
 ```
@@ -47,6 +47,7 @@ infra/terraform/
     ├── openai             Azure OpenAI accounts + router deployments
     ├── search             AI Search (RBAC only)
     ├── content_safety     Content Safety (Prompt Shields)
+    ├── language           Azure AI Language (PII detection, layered after the regex scrubber)
     ├── redis              Azure Managed Redis for the APIM semantic cache (optional)
     ├── apim               API Management AI gateway: APIs, policies, backends, product
     ├── container_apps     ACR + Container Apps environment + API and web apps
@@ -65,6 +66,7 @@ infra/terraform/
 | Azure OpenAI | `oai-rabt-pilot-aue` (failover account: `oai-rabt-pilot-<region>-2`) |
 | AI Search | `srch-rabt-pilot-sea` |
 | Content Safety | `cs-rabt-pilot-aue` |
+| Azure AI Language (PII) | `lang-rabt-pilot-sea` |
 | Key Vault | `kv-rabt-pilot-sea` |
 | Storage (KB docs) | `strabtpilotseakb` |
 | Container registry | `crrabtpilotsea` |
@@ -88,29 +90,29 @@ APIM, Key Vault, Storage, AI Search, Azure OpenAI and ACR names are global. If o
 | LLM | `openai` | `small`, `strong` and `embedding` deployments for the LLM router. Local (key) auth is off |
 | Retrieval | `search`, `storage` | RBAC-only Search. KB docs live in a private blob container; the ingestion script creates the index |
 | Safety | `content_safety` | Prompt Shields + text analysis, local auth off |
-| Gateway | `apim` | Three APIs (OpenAI, Search, Content Safety), one product and one subscription. Policies are in `modules/apim/policies/` |
+| Gateway | `apim` | Four APIs (OpenAI, Search, Content Safety, Language PII), one product and one subscription. Policies are in `modules/apim/policies/` |
 | Cache (optional) | `redis` | `enable_semantic_cache` |
 | Secrets | `keyvault`, `keyvault_secret` | RBAC, purge protection, 90-day soft delete. Secrets carry an expiry |
 | Identity | `identity`, `rbac` | APIM, Search, app and ingestion identities with least-privilege roles |
-| Network (default on) | `network`, `private_endpoints` | VNet with a PE subnet, APIM subnet and apps subnet (NSG on each). Private endpoints and DNS for AOAI, Search, KV, Storage, Content Safety and Redis |
+| Network (default on) | `network`, `private_endpoints` | VNet with a PE subnet, APIM subnet and apps subnet (NSG on each). Private endpoints and DNS for AOAI, Search, KV, Storage, Content Safety, Language and Redis |
 | Observability | `monitoring`, `diagnostics` | Every resource sends allLogs + metrics to Log Analytics. App Insights masks IPs |
 | Governance | `governance` + root guardrails | Budget alerts, optional delete lock, optional Defender plans, region allowlist, tags |
 
 ### APIM policies
 
-- **Caller auth**: the APIM subscription key in the `api-key` header (`Ocp-Apim-Subscription-Key` for Content Safety). `apim_auth_mode = "entra_jwt"` or `"both"` adds `validate-jwt` against your tenant.
+- **Caller auth**: the APIM subscription key in the `api-key` header (`Ocp-Apim-Subscription-Key` for Content Safety and Language). `apim_auth_mode = "entra_jwt"` or `"both"` adds `validate-jwt` against your tenant.
 - **Backend auth**: `authentication-managed-identity`. The caller's key header is deleted before forwarding; no Azure service keys exist.
 - **`azure-openai-token-limit`** per subscription and **`azure-openai-emit-token-metric`** to App Insights. No patient data goes into the dimensions.
 - **Semantic cache** (optional): only for requests sent with `x-rabt-cacheable: true`, partitioned by `x-rabt-cache-scope`.
 - **Resilience**: a priority-failover backend pool (primary → secondary) with a circuit breaker on 429/5xx, plus a retry.
-- **Search**: only `/indexes/<kb index>/docs...` is forwarded, rate-limited. **Content Safety**: only `text:analyze` and `text:shieldPrompt`.
+- **Search**: only `/indexes/<kb index>/docs...` is forwarded, rate-limited. **Content Safety**: only `text:analyze` and `text:shieldPrompt`. **Language**: only `:analyze-text` with `kind = PiiEntityRecognition`, rate-limited (`language_calls_per_minute`).
 - **Logging**: body bytes are 0 in all four directions and the client IP isn't logged.
 
 ### Roles
 
 | Principal | Role | Scope |
 |---|---|---|
-| APIM (system MI) | Cognitive Services OpenAI User / Cognitive Services User / Search Index Data Reader / Key Vault Secrets User | AOAI accounts / Content Safety / Search / Key Vault |
+| APIM (system MI) | Cognitive Services OpenAI User / Cognitive Services User / Search Index Data Reader / Key Vault Secrets User | AOAI accounts / Content Safety and Language / Search / Key Vault |
 | Search (system MI) | Cognitive Services OpenAI User, Storage Blob Data Reader | primary AOAI, KB storage |
 | Ingestion (user MI) | Storage Blob Data Reader, Search Index Data Contributor, Cognitive Services OpenAI User | KB storage, Search, primary AOAI |
 | App (user MI) | AcrPull | container registry |
@@ -213,10 +215,11 @@ Notes:
 | text-embedding-3-small (1), Standard (regional) | no | yes | Australia East | same |
 | gpt-4.1 (2025-04-14), Standard (regional) | no | no (Global/Provisioned only in APAC) | strong tier uses **gpt-4o (2024-11-20)** Standard in Australia East | same |
 | Content Safety text moderation + Prompt Shields (standalone resource) | no | yes | Australia East | [Content Safety region availability](https://learn.microsoft.com/en-us/azure/ai-services/content-safety/region-availability) |
+| Azure AI Language PII detection (S, EN/AR and 70+ languages) | yes | yes | Southeast Asia | [Language region support](https://learn.microsoft.com/en-us/azure/ai-services/language-service/concepts/regional-support) |
 | AI Search (Basic, semantic ranker) | yes | yes | Southeast Asia | [AI Search region support](https://learn.microsoft.com/en-us/azure/search/search-region-support) |
 | APIM Developer, Container Apps, Key Vault, Storage, ACR, Log Analytics | yes | yes | Southeast Asia | [products by region](https://azure.microsoft.com/explore/global-infrastructure/products-by-region/) |
 
-  - **Data processing is honest:** prompts and embeddings are processed in **Australia** (Azure OpenAI, Content Safety). Everything else is in **Singapore**.
+  - **Data processing is honest:** prompts and embeddings are processed in **Australia** (Azure OpenAI, Content Safety). PII detection (Language) runs in **Singapore**, before anything leaves for Australia. Everything else is in **Singapore**.
   - Nothing is claimed to stay in the UAE. Rabt only sends synthetic, PII-scrubbed text to the models.
   - To use gpt-4.1 as the strong model, set its `sku_name = "GlobalStandard"`. Microsoft may then process prompts in any region, so the README and consent text must say that.
   - Check quota before you apply: `az cognitiveservices usage list -l australiaeast -o table`.
@@ -245,6 +248,6 @@ terraform destroy -var-file=environments/pilot.tfvars
 ```
 
 - Remove the lock first if `enable_resource_lock = true`.
-- Key Vault, Cognitive Services accounts and APIM are **soft-deleted**. Re-applying with the same names recovers them. To free the names, purge AOAI/Content Safety and APIM manually; the Key Vault can't be purged until its 90-day retention ends.
+- Key Vault, Cognitive Services accounts and APIM are **soft-deleted**. Re-applying with the same names recovers them. To free the names, purge AOAI/Content Safety/Language and APIM manually; the Key Vault can't be purged until its 90-day retention ends.
 - Defender plans are subscription-wide, so `destroy` sets them back to Free for the whole subscription.
 - The state storage (`rg-rabt-tfstate-sea`) isn't managed here.

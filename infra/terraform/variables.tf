@@ -63,7 +63,7 @@ variable "allowed_locations" {
 variable "location_overrides" {
   description = <<-EOT
     Per-service region overrides for services or models that are not available in var.location.
-    Keys: openai, content_safety, apim, redis, search.
+    Keys: openai, content_safety, language, apim, redis, search.
     Default: Azure OpenAI and Content Safety in Australia East, because Southeast Asia has no regional
     Standard deployment of gpt-4.1-mini / text-embedding-3-small and no standalone Content Safety
     text moderation or Prompt Shields (see infra/terraform/README.md, Regions).
@@ -75,8 +75,8 @@ variable "location_overrides" {
   }
 
   validation {
-    condition     = alltrue([for k in keys(var.location_overrides) : contains(["openai", "content_safety", "apim", "redis", "search"], k)])
-    error_message = "location_overrides keys must be one of: openai, content_safety, apim, redis, search."
+    condition     = alltrue([for k in keys(var.location_overrides) : contains(["openai", "content_safety", "language", "apim", "redis", "search"], k)])
+    error_message = "location_overrides keys must be one of: openai, content_safety, language, apim, redis, search."
   }
 }
 
@@ -247,6 +247,26 @@ variable "enable_content_safety" {
   description = "Create Azure AI Content Safety (text moderation + Prompt Shields)."
   type        = bool
   default     = true
+}
+
+variable "enable_language_pii" {
+  description = <<-EOT
+    Create Azure AI Language and turn on Language PII detection in the API (LANGUAGE_PII_ENABLED).
+    Runs after the regex scrubber; if it is on and errors, model calls fail closed (templates are used).
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "language_pii_min_confidence" {
+  description = "Minimum Language PII confidence score to redact an entity (0-1)."
+  type        = number
+  default     = 0.6
+
+  validation {
+    condition     = var.language_pii_min_confidence >= 0 && var.language_pii_min_confidence <= 1
+    error_message = "language_pii_min_confidence must be between 0 and 1."
+  }
 }
 
 # ---------------------------------------------------------------------------

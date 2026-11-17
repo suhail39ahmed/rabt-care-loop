@@ -8,7 +8,7 @@ Actors: patient (demo), clinician, coordinator, optional LLM/APIM, mock insurer.
 | Spoofing | Fake persona | `X-Rabt-Persona` allowlist (`auth.py`) | Demo only |
 | Tampering | Alter closure | Ledger provenance + 4-eyes (`hitl.py`) | Shipped |
 | Repudiation | Deny approval | Approval votes table | Shipped |
-| Info disclosure | PII to LLM | `scrub_pii` / `scrub_pii_uae`; kill switch | Shipped |
+| Info disclosure | PII to LLM | Regex `scrub_pii` / `scrub_pii_uae`, then Azure AI Language PII (bare names, addresses; fails closed); kill switch | Shipped |
 | DoS | Agent loops | `MAX_STEPS`, tool scopes | Shipped |
 | Elevation | Patient closes cases | Role matrix `write_role_allowed` | Shipped |
 | Spoofing (ingest) | Fake FHIR | `RABT_INGEST_SECRET` | Shipped |

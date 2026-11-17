@@ -16,6 +16,7 @@ output "names" {
     search         = local.names.search
     openai         = local.names.openai
     content_safety = var.enable_content_safety ? local.names.content_safety : null
+    language       = var.enable_language_pii ? local.names.language : null
     log_analytics  = local.names.log_analytics
     app_insights   = local.names.app_insights
     registry       = local.names.registry

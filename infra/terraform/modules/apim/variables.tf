@@ -136,6 +136,24 @@ variable "content_safety_endpoint" {
   default     = null
 }
 
+variable "enable_language" {
+  description = "Expose the Azure AI Language PII API."
+  type        = bool
+  default     = false
+}
+
+variable "language_endpoint" {
+  description = "Language endpoint (required when enable_language)."
+  type        = string
+  default     = null
+}
+
+variable "language_calls_per_minute" {
+  description = "Rate limit per subscription / caller for the Language PII API."
+  type        = number
+  default     = 600
+}
+
 variable "enable_semantic_cache" {
   description = "Add the semantic cache (needs var.redis)."
   type        = bool

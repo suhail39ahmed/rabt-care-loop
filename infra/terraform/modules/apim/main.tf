@@ -218,6 +218,22 @@ resource "azurerm_api_management_backend" "content_safety" {
   }
 }
 
+resource "azurerm_api_management_backend" "language" {
+  #checkov:skip=CKV_AZURE_215:protocol "http" is the APIM REST-backend type; the url is https and TLS validation is on
+  count               = var.enable_language ? 1 : 0
+  name                = "language"
+  api_management_name = azurerm_api_management.main.name
+  resource_group_name = var.resource_group_name
+  protocol            = "http"
+  url                 = "${trimsuffix(var.language_endpoint, "/")}/language"
+  description         = "Azure AI Language (PII detection only)"
+
+  tls {
+    validate_certificate_chain = true
+    validate_certificate_name  = true
+  }
+}
+
 # --- Semantic cache link ---
 resource "azurerm_api_management_redis_cache" "semantic" {
   count             = var.enable_semantic_cache ? 1 : 0
@@ -383,6 +399,49 @@ resource "azurerm_api_management_api_policy" "content_safety" {
   depends_on = [azurerm_api_management_api_operation.content_safety]
 }
 
+resource "azurerm_api_management_api" "language" {
+  count                 = var.enable_language ? 1 : 0
+  name                  = "language"
+  api_management_name   = azurerm_api_management.main.name
+  resource_group_name   = var.resource_group_name
+  revision              = "1"
+  display_name          = "Azure AI Language PII (Rabt)"
+  path                  = "language"
+  protocols             = ["https"]
+  subscription_required = local.apim_subscription_required
+
+  subscription_key_parameter_names {
+    header = "Ocp-Apim-Subscription-Key"
+    query  = "subscription-key"
+  }
+}
+
+resource "azurerm_api_management_api_operation" "language" {
+  count               = var.enable_language ? 1 : 0
+  operation_id        = "analyze-text"
+  api_name            = azurerm_api_management_api.language[0].name
+  api_management_name = azurerm_api_management.main.name
+  resource_group_name = var.resource_group_name
+  display_name        = "analyze-text (PiiEntityRecognition only)"
+  method              = "POST"
+  url_template        = "/*"
+}
+
+resource "azurerm_api_management_api_policy" "language" {
+  count               = var.enable_language ? 1 : 0
+  api_name            = azurerm_api_management_api.language[0].name
+  api_management_name = azurerm_api_management.main.name
+  resource_group_name = var.resource_group_name
+
+  xml_content = templatefile("${path.module}/policies/language-api.xml.tftpl", {
+    auth             = local.apim_auth_fragment
+    backend_id       = azurerm_api_management_backend.language[0].name
+    calls_per_minute = var.language_calls_per_minute
+  })
+
+  depends_on = [azurerm_api_management_api_operation.language]
+}
+
 # --- Product + subscription for the Rabt API ---
 resource "azurerm_api_management_product" "rabt" {
   product_id            = "rabt"
@@ -399,7 +458,8 @@ resource "azurerm_api_management_product" "rabt" {
 resource "azurerm_api_management_product_api" "rabt" {
   for_each = merge(
     { openai = azurerm_api_management_api.openai.name, search = azurerm_api_management_api.search.name },
-    var.enable_content_safety ? { content_safety = azurerm_api_management_api.content_safety[0].name } : {}
+    var.enable_content_safety ? { content_safety = azurerm_api_management_api.content_safety[0].name } : {},
+    var.enable_language ? { language = azurerm_api_management_api.language[0].name } : {}
   )
   api_name            = each.value
   product_id          = azurerm_api_management_product.rabt.product_id

@@ -28,7 +28,7 @@ Start the API and web locally ([Quick start](#quick-start): `make api` and `make
 |---|---|
 | FHIR-shaped Observation intake (local/SQLite) | Malaffi HIE and Sehatna patient app |
 | Deterministic triage, navigator, closure, HITL board | Azure OpenAI via the APIM AI gateway (wired; `AI_ENABLED` kill switch, **off** until switched on) |
-| Lexicon / no-diagnosis guardrails, PII scrubbing before any model call | Azure Content Safety + Prompt Shields (wired; used when the gateway is configured) |
+| Lexicon / no-diagnosis guardrails, regex PII scrubbing before any model call | Azure Content Safety + Prompt Shields; Azure AI Language PII layered after the regex (fails closed) |
 | Grounded answers from the approved KB (local BM25; Azure AI Search in Azure), clinician-approved learning loop | Demo Health Insurance is a **synthetic** payer |
 | Signed A2A with a separate insurer agent; strict reply validation | MCP tool servers (prototype — **not** on the demo path) |
 | Live EN↔AR translation (approved phrases; AI with placeholders when on), browser TTS | |

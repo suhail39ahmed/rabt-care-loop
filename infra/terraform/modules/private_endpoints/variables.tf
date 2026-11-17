@@ -19,11 +19,12 @@ variable "subnet_id" {
 }
 
 variable "endpoints" {
-  description = "Endpoints keyed by a static short name. resource_id/dns_zone_id may be unknown until apply; keys must be static."
+  description = "Endpoints keyed by a static short name. Pass dns_zone_id or dns_zone_ids (Foundry needs both OpenAI + Cognitive zones)."
   type = map(object({
-    resource_id = string
-    subresource = string
-    dns_zone_id = string
+    resource_id  = string
+    subresource  = string
+    dns_zone_id  = optional(string)
+    dns_zone_ids = optional(list(string))
   }))
 }
 

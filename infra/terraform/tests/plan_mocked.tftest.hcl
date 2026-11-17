@@ -35,8 +35,8 @@ run "naming_convention" {
     error_message = "Hyphen-free names must follow the convention."
   }
   assert {
-    condition     = output.names.openai["primary"] == "oai-rabt-pilot-aue" && output.names.content_safety == "cs-rabt-pilot-aue"
-    error_message = "Services overridden to Australia East must carry the aue code."
+    condition     = output.names.foundry == "aif-rabt-pilot-aue"
+    error_message = "Foundry overridden to Australia East must carry the aue code."
   }
   assert {
     condition     = module.hosting.insurer_app_name == "ca-rabt-insurer-pilot"
@@ -56,12 +56,12 @@ run "defaults_private" {
   command = plan
 
   assert {
-    condition     = toset(output.security_summary.private_endpoints) == toset(["blob", "contentsafety", "foundry", "language", "openai-primary", "search", "vault"])
-    error_message = "Expected private endpoints for AOAI, Search, KV, Storage, Content Safety, Language and Foundry."
+    condition     = toset(output.security_summary.private_endpoints) == toset(["blob", "foundry", "search", "vault"])
+    error_message = "Expected private endpoints for Foundry, Search, KV and Storage."
   }
   assert {
     condition     = output.security_summary.ai_local_auth_enabled == false
-    error_message = "Azure OpenAI local auth must be disabled."
+    error_message = "Foundry local auth must be disabled."
   }
   assert {
     condition     = output.security_summary.apim_log_body_bytes == 0
@@ -76,19 +76,18 @@ run "defaults_private" {
     error_message = "Private networking must create the network module."
   }
   assert {
-    condition     = contains(output.security_summary.diagnostics_targets, "apim") && contains(output.security_summary.diagnostics_targets, "registry")
-    error_message = "APIM and ACR must send diagnostics to Log Analytics."
+    condition     = contains(output.security_summary.diagnostics_targets, "apim") && contains(output.security_summary.diagnostics_targets, "foundry")
+    error_message = "APIM and Foundry must send diagnostics to Log Analytics."
   }
 }
 
-run "public_with_cache_and_failover" {
+run "public_with_cache" {
   command = plan
 
   variables {
     enable_private_networking = false
     apim_sku_name             = "BasicV2_1"
     enable_semantic_cache     = true
-    openai_secondary_location = "southeastasia"
     apim_auth_mode            = "both"
     apim_jwt_audience         = "api://rabt"
     name_suffix               = "01"
@@ -99,8 +98,8 @@ run "public_with_cache_and_failover" {
     error_message = "No network resources expected when private networking is off."
   }
   assert {
-    condition     = output.names.openai["secondary"] == "oai-rabt-pilot-sea-2-01" && endswith(output.names.apim, "-sea-01")
-    error_message = "Secondary account and suffix must follow the convention."
+    condition     = output.names.foundry == "aif-rabt-pilot-aue-01" && endswith(output.names.apim, "-sea-01")
+    error_message = "Foundry suffix and APIM suffix must follow the convention."
   }
   assert {
     condition     = output.security_summary.key_vault_secrets_written == true
@@ -122,7 +121,17 @@ run "rejects_region_outside_allowlist" {
   command = plan
 
   variables {
-    location_overrides = { openai = "uaenorth" }
+    location_overrides = { foundry = "uaenorth" }
+  }
+
+  expect_failures = [terraform_data.guardrails]
+}
+
+run "rejects_foundry_disabled" {
+  command = plan
+
+  variables {
+    enable_foundry = false
   }
 
   expect_failures = [terraform_data.guardrails]

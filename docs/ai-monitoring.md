@@ -31,7 +31,7 @@ Every model call goes through one path: `services/agents/common/llm_client.py` (
 
 ## Foundry hub
 
-Microsoft Foundry (`enable_foundry`, `docs/foundry-ai.md`) is the portal surface for Content Safety, Language PII and evals. Diagnostics from the Foundry account go to the same Log Analytics workspace. **APIM remains the production gateway**; Foundry does not replace token limits or body-safe logging.
+Microsoft Foundry (`docs/foundry-ai.md`) is the **sole AI backend** behind APIM. App Insights is connected to the Foundry account; the project registers APIM as the AI gateway. Quotas and body-safe logging stay on **APIM**.
 
 ## Where to see it
 

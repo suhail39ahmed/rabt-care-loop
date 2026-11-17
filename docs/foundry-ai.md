@@ -1,39 +1,52 @@
-# Microsoft Foundry hub (pilot)
+# Microsoft Foundry + APIM AI gateway (pilot)
 
-Rabt keeps **APIM as the AI gateway** for production calls (OpenAI, Content Safety, Language PII, Search). **Foundry** (`kind=AIServices`) is the governed **portal + monitoring hub** so Content Safety, Language PII, evals and future agents share one Azure surface with App Insights / Log Analytics diagnostics.
+**Foundry** (`kind=AIServices`) is the **sole AI backend**. **APIM** is the **AI gateway** in front of it (quotas, MI auth, no body logs, metrics). The Foundry project `rabt-pilot` is registered with that APIM gateway and with Application Insights for portal tracing and evals.
 
 ```
-Rabt API ──► APIM AI gateway ──► OpenAI / Content Safety / Language / Search
-                    │                      ▲
-                    │                      │ (same RG; Foundry portal for CS/PII/evals)
-                    ▼                      │
-              App Insights ◄──────── Foundry (AIServices + project)
+Rabt API ──► APIM AI gateway ──► Foundry (OpenAI + Content Safety + Language)
+                 │                      │
+                 │                      ├── project rabt-pilot
+                 │                      │     ├── connection: APIM /openai (gateway)
+                 │                      │     └── (portal evals / playgrounds)
+                 ▼                      │
+           App Insights ◄───────────────┘  (account connection + APIM logger)
 ```
-
-## Why both
 
 | Piece | Role |
 |---|---|
-| APIM | TPM limits, MI auth, no body logs, token metrics, failovers |
-| Foundry | Studio for Content Safety / Language PII / evals; project boundary; improve-over-time in portal |
-| App Insights | Traces + custom `ai_event` dims from the API; APIM gateway metrics |
+| APIM | Production AI gateway: TPM token limit, rate limits, MI to Foundry, no body logs, token metrics |
+| Foundry account | Multi-service endpoint: chat/embed deployments, Content Safety, Language PII |
+| Foundry project | Portal boundary; APIM gateway connection; evals against the same models |
+| App Insights | API traces + APIM gateway metrics + Foundry account connection for portal/evals |
 
-Foundry does **not** replace the orchestrator or MCP-as-the-app. Optional Foundry MCP tools stay off the demo path.
+## Quotas and throttling
+
+Enforced on **APIM** (not as a second Foundry control plane):
+
+- OpenAI: `azure-openai-token-limit` (`apim_tokens_per_minute`)
+- Content Safety / Language / Search: `rate-limit-by-key` on those APIs
+- Deployment SKU `capacity` on Foundry model deployments (Azure-side TPM)
+
+## Evals
+
+- **Portal / Foundry:** use project `rabt-pilot` with App Insights connected (tracing).
+- **Repo offline:** `scripts/rag_eval.py` and golden tests stay the CI regression path (`azure-ai-evaluation` optional for richer judges).
+
+## MCP vs A2A
+
+Demo agents are **signed A2A** (orchestrator ↔ insurer), not MCP. `mcp-servers/` stubs exist but `mcp_in_demo_path` is false — **do not** register those as Foundry MCP tool servers for the pilot. Optional Foundry Agent Service / MCP remains a later path.
 
 ## Terraform
 
-- Module: `infra/terraform/modules/foundry`
-- Flag: `enable_foundry` (pilot `true`)
-- Name: `aif-rabt-pilot-aue` (australiaeast — Content Safety region)
-- Project: `rabt-pilot`
-- Keys off (`disable_local_auth`); Path B public + Entra, or private with the rest of the stack
-
-Standalone `cs-*` and `lang-*` accounts remain the APIM backends (import-friendly). Foundry is the hub to operate and improve them over time; consolidating backends onto the Foundry endpoint is a later cutover.
+- Module: `infra/terraform/modules/foundry` (account + deployments + project + App Insights connection)
+- Root: `azapi_resource.foundry_apim_gateway` (project → APIM `/openai`)
+- Flags: `enable_foundry` (required true); `enable_content_safety` / `enable_language_pii` only toggle APIM APIs onto the Foundry endpoint
+- Name: `aif-rabt-pilot-aue` (australiaeast for model + CS availability)
 
 ## Ops
 
-1. Portal → Foundry resource / project → Content Safety + Language playgrounds  
-2. App Insights → APIM + cognitive diagnostics (no request bodies)  
+1. Portal → Foundry project → playgrounds / evals (traffic intended via APIM connection)  
+2. App Insights → APIM + API + Foundry diagnostics (no request bodies)  
 3. Admin `/ai/metrics` for in-app counters  
 
-See also: [ai-monitoring.md](ai-monitoring.md), [rag-azure.md](rag-azure.md).
+See also: [ai-monitoring.md](ai-monitoring.md), [rag-azure.md](rag-azure.md), [agent-security.md](agent-security.md).

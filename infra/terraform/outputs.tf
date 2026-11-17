@@ -14,10 +14,7 @@ output "names" {
     key_vault      = local.names.key_vault
     storage_kb     = local.names.storage_kb
     search         = local.names.search
-    openai         = local.names.openai
-    content_safety = var.enable_content_safety ? local.names.content_safety : null
-    language       = var.enable_language_pii ? local.names.language : null
-    foundry        = var.enable_foundry ? local.names.foundry : null
+    foundry        = local.names.foundry
     log_analytics  = local.names.log_analytics
     app_insights   = local.names.app_insights
     registry       = local.names.registry
@@ -43,7 +40,7 @@ output "apim_subscription_resource_id" {
 }
 
 output "openai_deployments" {
-  description = "Deployment names by router role."
+  description = "Deployment names by router role (hosted on Foundry)."
   value = {
     small     = local.deployments_by_role.small[0]
     strong    = local.deployments_by_role.strong[0]
@@ -52,18 +49,28 @@ output "openai_deployments" {
 }
 
 output "openai_endpoints" {
-  description = "Direct Azure OpenAI endpoints (private when private networking is on; the app uses APIM)."
-  value       = module.openai.endpoints
+  description = "Foundry endpoint map (app uses APIM; direct endpoint for fallback/scripts)."
+  value       = { primary = module.foundry.endpoint }
 }
 
 output "foundry_endpoint" {
-  description = "Microsoft Foundry (AIServices) endpoint for portal/evals; app traffic still uses APIM."
-  value       = var.enable_foundry ? module.foundry[0].endpoint : null
+  description = "Microsoft Foundry (AIServices) multi-service endpoint behind APIM."
+  value       = module.foundry.endpoint
 }
 
 output "foundry_project_id" {
-  description = "Foundry project resource ID (null if Foundry or project disabled)."
-  value       = var.enable_foundry ? module.foundry[0].project_id : null
+  description = "Foundry project resource ID (null if project disabled)."
+  value       = module.foundry.project_id
+}
+
+output "foundry_app_insights_connection_id" {
+  description = "Foundry account ↔ Application Insights connection ID."
+  value       = module.foundry.app_insights_connection_id
+}
+
+output "foundry_apim_gateway_connection_id" {
+  description = "Foundry project ↔ APIM AI gateway connection ID."
+  value       = try(azapi_resource.foundry_apim_gateway[0].id, null)
 }
 
 output "search_service_name" {
@@ -153,7 +160,7 @@ output "security_summary" {
   value = {
     private_networking        = local.private
     private_endpoints         = local.private ? sort(keys(module.private_endpoints[0].ids)) : []
-    ai_local_auth_enabled     = module.openai.local_auth_enabled
+    ai_local_auth_enabled     = module.foundry.local_auth_enabled
     apim_log_body_bytes       = module.apim.log_body_bytes
     apim_auth_mode            = var.apim_auth_mode
     key_vault_secrets_written = local.write_secrets

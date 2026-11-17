@@ -63,8 +63,8 @@ variable "allowed_locations" {
 variable "location_overrides" {
   description = <<-EOT
     Per-service region overrides for services or models that are not available in var.location.
-    Keys: openai, content_safety, language, apim, redis, search.
-    Default: Azure OpenAI and Content Safety in Australia East, because Southeast Asia has no regional
+    Keys: openai, content_safety, language, foundry, apim, redis, search.
+    Default: Azure OpenAI, Content Safety and Foundry in Australia East, because Southeast Asia has no regional
     Standard deployment of gpt-4.1-mini / text-embedding-3-small and no standalone Content Safety
     text moderation or Prompt Shields (see infra/terraform/README.md, Regions).
   EOT
@@ -72,11 +72,12 @@ variable "location_overrides" {
   default = {
     openai         = "australiaeast"
     content_safety = "australiaeast"
+    foundry        = "australiaeast"
   }
 
   validation {
-    condition     = alltrue([for k in keys(var.location_overrides) : contains(["openai", "content_safety", "language", "apim", "redis", "search"], k)])
-    error_message = "location_overrides keys must be one of: openai, content_safety, language, apim, redis, search."
+    condition     = alltrue([for k in keys(var.location_overrides) : contains(["openai", "content_safety", "language", "foundry", "apim", "redis", "search"], k)])
+    error_message = "location_overrides keys must be one of: openai, content_safety, language, foundry, apim, redis, search."
   }
 }
 
@@ -243,6 +244,22 @@ variable "search_index_name" {
 # ---------------------------------------------------------------------------
 # Content Safety
 # ---------------------------------------------------------------------------
+variable "enable_foundry" {
+  description = <<-EOT
+    Create a Microsoft Foundry (AIServices) hub + pilot project for Content Safety / Language PII
+    portal, evals and App Insights–backed improve-over-time. APIM remains the production AI gateway;
+    see docs/foundry-ai.md.
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "foundry_project_name" {
+  description = "Foundry project name under the AIServices account (null skips the project)."
+  type        = string
+  default     = "rabt-pilot"
+}
+
 variable "enable_content_safety" {
   description = "Create Azure AI Content Safety (text moderation + Prompt Shields)."
   type        = bool

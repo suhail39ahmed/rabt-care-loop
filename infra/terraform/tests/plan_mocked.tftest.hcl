@@ -56,8 +56,8 @@ run "defaults_private" {
   command = plan
 
   assert {
-    condition     = toset(output.security_summary.private_endpoints) == toset(["blob", "contentsafety", "language", "openai-primary", "search", "vault"])
-    error_message = "Expected private endpoints for AOAI, Search, KV, Storage and Content Safety."
+    condition     = toset(output.security_summary.private_endpoints) == toset(["blob", "contentsafety", "foundry", "language", "openai-primary", "search", "vault"])
+    error_message = "Expected private endpoints for AOAI, Search, KV, Storage, Content Safety, Language and Foundry."
   }
   assert {
     condition     = output.security_summary.ai_local_auth_enabled == false

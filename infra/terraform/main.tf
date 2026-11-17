@@ -495,11 +495,11 @@ resource "azurerm_api_management_api" "insurer_a2a" {
 
 resource "azurerm_api_management_api_operation" "insurer_a2a" {
   for_each = var.enable_insurer_demo ? {
-    agent_card       = { method = "GET", url = "/.well-known/agent.json", display = "Agent card" }
-    healthz          = { method = "GET", url = "/healthz", display = "Health" }
-    eligibility      = { method = "POST", url = "/a2a/eligibility", display = "A2A eligibility" }
-    payment_options  = { method = "POST", url = "/a2a/payment-options", display = "A2A payment options" }
-    claims           = { method = "POST", url = "/a2a/claims", display = "A2A claims" }
+    agent_card      = { method = "GET", url = "/.well-known/agent.json", display = "Agent card" }
+    healthz         = { method = "GET", url = "/healthz", display = "Health" }
+    eligibility     = { method = "POST", url = "/a2a/eligibility", display = "A2A eligibility" }
+    payment_options = { method = "POST", url = "/a2a/payment-options", display = "A2A payment options" }
+    claims          = { method = "POST", url = "/a2a/claims", display = "A2A claims" }
   } : {}
 
   operation_id        = replace(each.key, "_", "-")
@@ -533,10 +533,10 @@ module "diagnostics" {
   log_analytics_workspace_id = module.monitoring.log_analytics_workspace_id
   targets = merge(
     {
-      foundry         = { resource_id = module.foundry.id }
-      search          = { resource_id = module.search.id }
-      keyvault        = { resource_id = module.keyvault.id }
-      apim            = { resource_id = module.apim.id }
+      foundry  = { resource_id = module.foundry.id }
+      search   = { resource_id = module.search.id }
+      keyvault = { resource_id = module.keyvault.id }
+      apim     = { resource_id = module.apim.id }
       # App Insights is workspace-based (already lands in LAW); APIM logger + Foundry AppInsights connection cover AI telemetry.
       storage-blob    = { resource_id = module.storage.blob_service_id, metric_category = "Transaction" }
       storage-account = { resource_id = module.storage.id, metric_category = "Transaction", logs = false }

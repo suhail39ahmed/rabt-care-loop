@@ -98,7 +98,7 @@ APIM, Key Vault, Storage, AI Search, Azure OpenAI and ACR names are global. If o
 
 - **Caller auth**: the APIM subscription key in the `api-key` header (`Ocp-Apim-Subscription-Key` for Content Safety and Language). `apim_auth_mode = "entra_jwt"` or `"both"` adds `validate-jwt` against your tenant.
 - **Backend auth**: `authentication-managed-identity`. The caller's key header is deleted before forwarding; no Azure service keys exist.
-- **`azure-openai-token-limit`** per subscription and **`azure-openai-emit-token-metric`** to App Insights. No patient data goes into the dimensions.
+- **`llm-token-limit`** per subscription and **`llm-emit-token-metric`** to App Insights. No patient data goes into the dimensions.
 - **Semantic cache** (optional): only for requests sent with `x-rabt-cacheable: true`, partitioned by `x-rabt-cache-scope`.
 - **Resilience**: a priority-failover backend pool (primary → secondary) with a circuit breaker on 429/5xx, plus a retry.
 - **Search**: only `/indexes/<kb index>/docs...` is forwarded, rate-limited. **Content Safety**: only `text:analyze` and `text:shieldPrompt`. **Language**: only `:analyze-text` with `kind = PiiEntityRecognition`, rate-limited (`language_calls_per_minute`).

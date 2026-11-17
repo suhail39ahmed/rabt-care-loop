@@ -308,7 +308,12 @@ resource "azurerm_api_management_api_policy" "openai" {
     cache_ttl_seconds     = var.semantic_cache_ttl_seconds
   })
 
-  depends_on = [azurerm_api_management_redis_cache.semantic, azurerm_api_management_api_operation.openai]
+  depends_on = [
+    azurerm_api_management_redis_cache.semantic,
+    azurerm_api_management_api_operation.openai,
+    azapi_resource.openai_pool,
+    azurerm_api_management_backend.openai,
+  ]
 }
 
 resource "azurerm_api_management_api" "search" {

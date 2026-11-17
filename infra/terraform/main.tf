@@ -277,34 +277,26 @@ resource "azapi_resource" "foundry_apim_gateway_account" {
   schema_validation_enabled = false
 }
 
+# Project connection is owned by the AML workspace after account-level isSharedToAll;
+# keep it in state for the output ID but never update/destroy (AML rejects Cognitive PUT).
 resource "azapi_resource" "foundry_apim_gateway" {
-  # Static count (known at plan): project + subscription-key auth mode.
   count     = var.foundry_project_name != null && local.apim_subscription_required ? 1 : 0
   type      = "Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview"
   name      = module.apim.name
   parent_id = module.foundry.project_id
   body = {
     properties = {
-      category      = "ApiManagement"
-      target        = "${trimsuffix(module.apim.gateway_url, "/")}/openai"
-      authType      = "ApiKey"
-      isSharedToAll = true
-      isDefault     = true
-      credentials = {
-        key = module.apim.subscription_primary_key
-      }
-      metadata = {
-        ApiType             = "Azure"
-        ResourceId          = module.apim.id
-        deploymentInPath    = "true"
-        inferenceAPIVersion = var.openai_api_version
-        modelDiscovery      = "false"
-        GatewayName         = module.apim.name
-      }
+      category = "ApiManagement"
+      target   = "${trimsuffix(module.apim.gateway_url, "/")}/openai"
+      authType = "ApiKey"
     }
   }
   schema_validation_enabled = false
   depends_on                = [azapi_resource.foundry_apim_gateway_account]
+
+  lifecycle {
+    ignore_changes = [body]
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -541,12 +533,13 @@ module "diagnostics" {
       storage-blob    = { resource_id = module.storage.blob_service_id, metric_category = "Transaction" }
       storage-account = { resource_id = module.storage.id, metric_category = "Transaction", logs = false }
       registry        = { resource_id = module.hosting.registry_id }
-      cae             = { resource_id = module.hosting.environment_id }
-      api-app         = { resource_id = module.hosting.app_ids.api }
-      web-app         = { resource_id = module.hosting.app_ids.web }
+      # Container Apps / Managed Redis do not support categoryGroup allLogs — metrics only.
+      cae     = { resource_id = module.hosting.environment_id, logs = false }
+      api-app = { resource_id = module.hosting.app_ids.api, logs = false }
+      web-app = { resource_id = module.hosting.app_ids.web, logs = false }
     },
-    var.enable_insurer_demo ? { insurer-app = { resource_id = module.hosting.app_ids.insurer } } : {},
-    var.enable_semantic_cache ? { redis = { resource_id = module.redis[0].id } } : {}
+    var.enable_insurer_demo ? { insurer-app = { resource_id = module.hosting.app_ids.insurer, logs = false } } : {},
+    var.enable_semantic_cache ? { redis = { resource_id = module.redis[0].id, logs = false } } : {}
   )
 }
 

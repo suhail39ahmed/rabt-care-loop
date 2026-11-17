@@ -36,7 +36,8 @@ apim_auth_mode      = "subscription_key"
 # APIM APIs onto the Foundry endpoint (not separate cognitive accounts).
 enable_content_safety = true
 enable_language_pii   = true
-enable_semantic_cache = false
+# Redis + llm-semantic-cache-* on OpenAI (only when x-rabt-cacheable: true).
+enable_semantic_cache = true
 
 # Kill switch for the deployed API: false = templates only (safe default for a public demo).
 ai_enabled = false

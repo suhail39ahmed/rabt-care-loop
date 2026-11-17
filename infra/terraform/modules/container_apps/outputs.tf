@@ -38,9 +38,17 @@ output "web_url" {
   value       = "https://${azurerm_container_app.web.ingress[0].fqdn}"
 }
 
+output "environment_id" {
+  description = "Container Apps environment resource ID (diagnostics)."
+  value       = azurerm_container_app_environment.this.id
+}
+
 output "app_ids" {
   description = "Container app IDs (diagnostics / role scopes)."
-  value       = { api = azurerm_container_app.api.id, web = azurerm_container_app.web.id }
+  value = merge(
+    { api = azurerm_container_app.api.id, web = azurerm_container_app.web.id },
+    var.insurer == null ? {} : { insurer = azurerm_container_app.insurer[0].id }
+  )
 }
 
 output "ingest_job_name" {

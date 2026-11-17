@@ -1,6 +1,7 @@
 <policies>
   <inbound>
     <base />
+    <include-fragment fragment-id="rabt-traffic-monitor-inbound" />
     ${auth}
     <choose>
       <when condition="@(!(context.Request.Url.Path.EndsWith(&quot;text:analyze&quot;) || context.Request.Url.Path.EndsWith(&quot;text:shieldPrompt&quot;)))">
@@ -18,6 +19,7 @@
   </backend>
   <outbound>
     <base />
+    <include-fragment fragment-id="rabt-traffic-monitor-outbound" />
   </outbound>
   <on-error>
     <base />

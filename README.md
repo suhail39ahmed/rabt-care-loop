@@ -168,7 +168,7 @@ All benchmark numbers are **simulated on synthetic data**, not real-world outcom
 | Tools | MCP Python SDK server stubs | Scoped MCP tools over AHDS FHIR |
 | Local mocks | Docker Compose: HAPI FHIR R4, PostgreSQL, Mailpit, Jaeger | Azure Health Data Services, ACS, App Insights |
 | Tests / CI | pytest, pytest-asyncio, Hypothesis; GitHub Actions | + lint, web build, security scans |
-| Packaging / IaC | uv (`uv.lock`), npm, Docker | Terraform modules (`infra/terraform`), GitHub Actions with OIDC (`infra.yml`, `deploy.yml`) |
+| Packaging / IaC | uv (`uv.lock`), npm, Docker | Terraform modules (`infra/terraform`), GitHub Actions with a service principal (`infra.yml`, `deploy.yml`) |
 
 ## Repository structure
 
@@ -301,10 +301,10 @@ Details: [docs/responsible-ai.md](docs/responsible-ai.md) · [docs/assumptions-l
 ## Deploy / hosting
 
 - **Azure, provisioned by Terraform:** [`infra/terraform`](infra/terraform) has a thin root plus modules for the network, APIM AI gateway, Azure OpenAI, AI Search, Content Safety, Key Vault, storage, monitoring, governance and Container Apps. State lives in an Azure Storage account. Names follow `<type>-rabt-<env>-<region>` (for example `rg-rabt-pilot-sea`, `apim-rabt-pilot-sea`). Primary region is Singapore (`southeastasia`); Azure OpenAI and Content Safety run in Australia East because the models and Prompt Shields are not offered regionally in Singapore, so prompts are processed in Australia (see the Terraform README, Regions).
-- **GitHub Actions, OIDC only (no stored cloud secrets):**
+- **GitHub Actions, service principal with a client secret, configured through repository secrets only (no repository variables):**
   - `infra.yml`: `terraform plan` on pull requests that touch `infra/terraform`; `apply` on `main` or manual dispatch, behind the `pilot` environment approval.
   - `deploy.yml`: builds the API and web images, pushes them to ACR and rolls them out to Container Apps, behind the same environment approval.
-  - Both workflows skip cleanly until the Azure repository variables are set.
+  - Both workflows skip cleanly until the repository secrets are set. The list, the roles and rotation are in the Terraform README, First-time bootstrap.
 - **Docker:** `services/orchestrator/Dockerfile` and `apps/web/Dockerfile` (bind `0.0.0.0:$PORT`).
 - **Local:** `make api` / `make web`, or `docker compose up`.
 

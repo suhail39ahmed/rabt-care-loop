@@ -1,8 +1,10 @@
 name: deploy
 
 # Builds the API and web images, pushes them to Azure Container Registry and rolls them out to
-# Azure Container Apps. GitHub OIDC only (no stored cloud secrets); runs in the `pilot` environment.
-# Skipped until the Azure variables are set AND DEPLOY_ENABLED=true (set it after the first infra apply).
+# Azure Container Apps as a service principal with a client secret; runs in the `pilot` environment.
+# Configuration is repository SECRETS only (AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID,
+# AZURE_SUBSCRIPTION_ID). Skipped while the secrets are missing; if the infra is not applied yet
+# (no registry), the job exits early with a notice instead of failing.
 
 on:
   push:
@@ -25,12 +27,13 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'rg-rabt-pilot-sea' }}
-  ACR_NAME: ${{ vars.ACR_NAME || 'crrabtpilotsea' }}
-  API_APP: ${{ vars.API_APP_NAME || 'ca-rabt-api-pilot' }}
-  WEB_APP: ${{ vars.WEB_APP_NAME || 'ca-rabt-web-pilot' }}
-  INGEST_JOB: ${{ vars.INGEST_JOB_NAME || 'caj-rabt-ingest-pilot' }}
-  INSURER_APP: ${{ vars.INSURER_APP_NAME || 'ca-rabt-insurer-pilot' }}
+  # Names follow infra/terraform naming (name_suffix = "").
+  RESOURCE_GROUP: rg-rabt-pilot-sea
+  ACR_NAME: crrabtpilotsea
+  API_APP: ca-rabt-api-pilot
+  WEB_APP: ca-rabt-web-pilot
+  INGEST_JOB: caj-rabt-ingest-pilot
+  INSURER_APP: ca-rabt-insurer-pilot
 
 jobs:
   gate:
@@ -40,15 +43,18 @@ jobs:
       enabled: ${{ steps.check.outputs.enabled }}
     steps:
       - id: check
+        # Only checks that the secrets exist; their values are never printed.
         env:
-          CLIENT: ${{ vars.AZURE_CLIENT_ID }}
-          ENABLED: ${{ vars.DEPLOY_ENABLED }}
+          HAS_CLIENT: ${{ secrets.AZURE_CLIENT_ID != '' }}
+          HAS_SECRET: ${{ secrets.AZURE_CLIENT_SECRET != '' }}
+          HAS_TENANT: ${{ secrets.AZURE_TENANT_ID != '' }}
+          HAS_SUB: ${{ secrets.AZURE_SUBSCRIPTION_ID != '' }}
         run: |
-          if [ -n "$CLIENT" ] && [ "$ENABLED" = "true" ]; then
+          if [ "$HAS_CLIENT$HAS_SECRET$HAS_TENANT$HAS_SUB" = "truetruetruetrue" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Deploy skipped::Set AZURE_* variables and DEPLOY_ENABLED=true after the first infra apply."
+            echo "::notice title=Deploy skipped::Add the AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID and AZURE_SUBSCRIPTION_ID repository secrets."
           fi
 
   deploy:
@@ -59,29 +65,39 @@ jobs:
     environment: pilot
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@v4
 
       - uses: azure/login@v2
         with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          creds: '{"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}"}'
 
-      - name: Prepare
+      - name: Check the infra exists
+        id: infra
         run: |
           az extension add --name containerapp --upgrade --yes --only-show-errors
+          if az acr show -n "$ACR_NAME" -o none 2>/dev/null && az containerapp show -n "$API_APP" -g "$RESOURCE_GROUP" -o none 2>/dev/null; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Deploy skipped::$ACR_NAME / $API_APP not found. Run the infra workflow (apply) first."
+          fi
+
+      - name: Prepare
+        if: steps.infra.outputs.ready == 'true'
+        run: |
           az acr login --name "$ACR_NAME"
           echo "REGISTRY=$(az acr show -n "$ACR_NAME" --query loginServer -o tsv)" >> "$GITHUB_ENV"
           echo "TAG=${GITHUB_SHA::12}" >> "$GITHUB_ENV"
 
       - name: Build and push API image
+        if: steps.infra.outputs.ready == 'true'
         run: |
           docker build -f services/orchestrator/Dockerfile -t "$REGISTRY/rabt-api:$TAG" .
           docker push "$REGISTRY/rabt-api:$TAG"
 
       - name: Roll out API
+        if: steps.infra.outputs.ready == 'true'
         run: |
           az containerapp update -n "$API_APP" -g "$RESOURCE_GROUP" --image "$REGISTRY/rabt-api:$TAG" --only-show-errors -o none
           az containerapp ingress update -n "$API_APP" -g "$RESOURCE_GROUP" --target-port 8000 --only-show-errors -o none
@@ -89,6 +105,7 @@ jobs:
           echo "WEB_URL=https://$(az containerapp show -n "$WEB_APP" -g "$RESOURCE_GROUP" --query properties.configuration.ingress.fqdn -o tsv)" >> "$GITHUB_ENV"
 
       - name: Roll out demo insurer agent
+        if: steps.infra.outputs.ready == 'true'
         run: |
           if az containerapp show -n "$INSURER_APP" -g "$RESOURCE_GROUP" -o none 2>/dev/null; then
             az containerapp update -n "$INSURER_APP" -g "$RESOURCE_GROUP" --image "$REGISTRY/rabt-api:$TAG" --only-show-errors -o none
@@ -98,6 +115,7 @@ jobs:
           fi
 
       - name: Roll out KB ingestion job and index the approved KB
+        if: steps.infra.outputs.ready == 'true'
         run: |
           if az containerapp job show -n "$INGEST_JOB" -g "$RESOURCE_GROUP" -o none 2>/dev/null; then
             az containerapp job update -n "$INGEST_JOB" -g "$RESOURCE_GROUP" --image "$REGISTRY/rabt-api:$TAG" --only-show-errors -o none
@@ -108,6 +126,7 @@ jobs:
           fi
 
       - name: Build and push web image
+        if: steps.infra.outputs.ready == 'true'
         run: |
           docker build -f apps/web/Dockerfile \
             --build-arg NEXT_PUBLIC_API_URL="$API_URL" \
@@ -116,11 +135,13 @@ jobs:
           docker push "$REGISTRY/rabt-web:$TAG"
 
       - name: Roll out web
+        if: steps.infra.outputs.ready == 'true'
         run: |
           az containerapp update -n "$WEB_APP" -g "$RESOURCE_GROUP" --image "$REGISTRY/rabt-web:$TAG" --only-show-errors -o none
           az containerapp ingress update -n "$WEB_APP" -g "$RESOURCE_GROUP" --target-port 3000 --only-show-errors -o none
 
       - name: Smoke test
+        if: steps.infra.outputs.ready == 'true'
         run: |
           for i in $(seq 1 30); do
             if curl -fsS "$API_URL/healthz" > /tmp/health.json; then break; fi
@@ -131,6 +152,7 @@ jobs:
           curl -fsS -o /dev/null "$WEB_URL/board"
 
       - name: Summary
+        if: steps.infra.outputs.ready == 'true'
         run: |
           {
             echo "### Deployed \`$TAG\`"

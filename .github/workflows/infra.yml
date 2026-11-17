@@ -1,11 +1,13 @@
 name: infra
 
-# Terraform for the Azure stack (infra/terraform), authenticated with GitHub OIDC (no stored cloud secrets).
+# Terraform for the Azure stack (infra/terraform), authenticated as a service principal with a client secret.
 #   pull_request -> plan (posted to the job summary)
 #   push to main / manual dispatch -> plan + apply in the `pilot` environment (protect it with required reviewers)
-# Every Azure job is skipped until the repository variables below are set, so main stays green before Azure exists.
-#   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, APIM_PUBLISHER_EMAIL, BUDGET_CONTACT_EMAILS (JSON list)
-#   optional: TF_STATE_RESOURCE_GROUP, TF_STATE_STORAGE_ACCOUNT, TF_STATE_CONTAINER, TF_STATE_KEY
+# Configuration is GitHub repository SECRETS only (no repository variables). Every Azure job is skipped until
+# these secrets exist, so main stays green before Azure is set up:
+#   AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID,
+#   APIM_PUBLISHER_EMAIL, BUDGET_CONTACT_EMAILS (JSON list, e.g. ["you@example.com"])
+#   optional overrides: TF_STATE_RESOURCE_GROUP, TF_STATE_STORAGE_ACCOUNT, TF_STATE_CONTAINER, TF_STATE_KEY
 
 on:
   pull_request:
@@ -24,6 +26,10 @@ on:
         type: choice
         options: [plan, apply]
         default: plan
+      import_existing:
+        description: "adopt the hand-created pilot RG, APIM, Log Analytics, VNet and ACR into state (imports.tf)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,16 +42,16 @@ env:
   TF_VERSION: "1.9.8"
   TF_IN_AUTOMATION: "true"
   TF_INPUT: "false"
-  ARM_USE_OIDC: "true"
-  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-  TF_VAR_apim_publisher_email: ${{ vars.APIM_PUBLISHER_EMAIL }}
-  TF_VAR_budget_contact_emails: ${{ vars.BUDGET_CONTACT_EMAILS }}
-  STATE_RG: ${{ vars.TF_STATE_RESOURCE_GROUP || 'rg-rabt-tfstate-sea' }}
-  STATE_SA: ${{ vars.TF_STATE_STORAGE_ACCOUNT || 'strabttfstatesea' }}
-  STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER || 'tfstate' }}
-  STATE_KEY: ${{ vars.TF_STATE_KEY || 'rabt/pilot.tfstate' }}
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  TF_VAR_apim_publisher_email: ${{ secrets.APIM_PUBLISHER_EMAIL }}
+  TF_VAR_budget_contact_emails: ${{ secrets.BUDGET_CONTACT_EMAILS }}
+  STATE_RG: ${{ secrets.TF_STATE_RESOURCE_GROUP || 'rg-rabt-tfstate-sea' }}
+  STATE_SA: ${{ secrets.TF_STATE_STORAGE_ACCOUNT || 'strabttfstatesea' }}
+  STATE_CONTAINER: ${{ secrets.TF_STATE_CONTAINER || 'tfstate' }}
+  STATE_KEY: ${{ secrets.TF_STATE_KEY || 'rabt/pilot.tfstate' }}
 
 jobs:
   gate:
@@ -55,18 +61,20 @@ jobs:
       configured: ${{ steps.check.outputs.configured }}
     steps:
       - id: check
+        # Only checks that the secrets exist; their values are never printed.
         env:
-          CLIENT: ${{ vars.AZURE_CLIENT_ID }}
-          TENANT: ${{ vars.AZURE_TENANT_ID }}
-          SUB: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-          EMAIL: ${{ vars.APIM_PUBLISHER_EMAIL }}
-          EMAILS: ${{ vars.BUDGET_CONTACT_EMAILS }}
+          HAS_CLIENT: ${{ secrets.AZURE_CLIENT_ID != '' }}
+          HAS_SECRET: ${{ secrets.AZURE_CLIENT_SECRET != '' }}
+          HAS_TENANT: ${{ secrets.AZURE_TENANT_ID != '' }}
+          HAS_SUB: ${{ secrets.AZURE_SUBSCRIPTION_ID != '' }}
+          HAS_EMAIL: ${{ secrets.APIM_PUBLISHER_EMAIL != '' }}
+          HAS_EMAILS: ${{ secrets.BUDGET_CONTACT_EMAILS != '' }}
         run: |
-          if [ -n "$CLIENT" ] && [ -n "$TENANT" ] && [ -n "$SUB" ] && [ -n "$EMAIL" ] && [ -n "$EMAILS" ]; then
+          if [ "$HAS_CLIENT$HAS_SECRET$HAS_TENANT$HAS_SUB$HAS_EMAIL$HAS_EMAILS" = "truetruetruetruetruetrue" ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Azure not configured::Set AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, APIM_PUBLISHER_EMAIL and BUDGET_CONTACT_EMAILS repository variables to enable Terraform plan/apply."
+            echo "::notice title=Azure not configured::Add the repository secrets AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, APIM_PUBLISHER_EMAIL and BUDGET_CONTACT_EMAILS to enable Terraform plan/apply."
           fi
 
   plan:
@@ -76,7 +84,6 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      id-token: write
     defaults:
       run:
         working-directory: infra/terraform
@@ -115,7 +122,6 @@ jobs:
     environment: pilot
     permissions:
       contents: read
-      id-token: write
     defaults:
       run:
         working-directory: infra/terraform
@@ -134,6 +140,8 @@ jobs:
             -backend-config="key=$STATE_KEY" \
             -backend-config="use_azuread_auth=true"
       - name: terraform plan
+        env:
+          TF_VAR_import_existing: ${{ inputs.import_existing && 'true' || 'false' }}
         run: terraform plan -lock-timeout=10m -var-file=environments/pilot.tfvars -out tfplan -no-color
       - name: terraform apply
         if: github.event_name == 'push' || inputs.action == 'apply'

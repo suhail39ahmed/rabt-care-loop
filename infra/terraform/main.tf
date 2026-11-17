@@ -14,7 +14,7 @@ resource "terraform_data" "guardrails" {
   lifecycle {
     precondition {
       condition     = alltrue([for l in local.all_locations : contains(var.allowed_locations, l)])
-      error_message = "All locations (location, location_overrides, openai_secondary_location) must be in allowed_locations."
+      error_message = "All locations (location, location_overrides) must be in allowed_locations."
     }
     precondition {
       condition     = alltrue([for l in local.all_locations : contains(keys(local.region_codes), l)])
@@ -29,8 +29,8 @@ resource "terraform_data" "guardrails" {
       error_message = "With enable_private_networking, APIM must be in var.location (same region as the VNet it is injected into)."
     }
     precondition {
-      condition     = var.openai_secondary_location == null || var.openai_secondary_location != local.locations.openai
-      error_message = "openai_secondary_location must differ from the primary Azure OpenAI region."
+      condition     = var.enable_foundry
+      error_message = "enable_foundry must be true: Foundry (AIServices) is the sole AI backend behind APIM."
     }
     precondition {
       condition     = var.apim_auth_mode == "subscription_key" || length(var.apim_jwt_audience) > 0
@@ -128,20 +128,6 @@ module "storage" {
   tags                          = local.tags
 }
 
-module "openai" {
-  source = "./modules/openai"
-
-  resource_group_name = azurerm_resource_group.main.name
-  accounts = {
-    for k, loc in local.openai_accounts : k => { name = local.names.openai[k], location = loc }
-  }
-  deployments                   = var.openai_deployments
-  local_auth_enabled            = !var.disable_local_auth
-  public_network_access_enabled = !local.private
-  network_default_action        = local.private ? "Deny" : "Allow"
-  tags                          = local.tags
-}
-
 module "search" {
   source = "./modules/search"
 
@@ -158,44 +144,22 @@ module "search" {
   tags                          = local.tags
 }
 
+# Sole AI backend: Foundry AIServices (OpenAI deployments + CS + Language on one endpoint).
 module "foundry" {
   source = "./modules/foundry"
-  count  = var.enable_foundry ? 1 : 0
 
-  name                          = local.names.foundry
-  resource_group_name           = azurerm_resource_group.main.name
-  location                      = local.locations.foundry
-  local_auth_enabled            = !var.disable_local_auth
-  public_network_access_enabled = !local.private
-  network_default_action        = local.private ? "Deny" : "Allow"
-  project_name                  = var.foundry_project_name
-  tags                          = local.tags
-}
-
-module "content_safety" {
-  source = "./modules/content_safety"
-  count  = var.enable_content_safety ? 1 : 0
-
-  name                          = local.names.content_safety
-  resource_group_name           = azurerm_resource_group.main.name
-  location                      = local.locations.content_safety
-  local_auth_enabled            = !var.disable_local_auth
-  public_network_access_enabled = !local.private
-  network_default_action        = local.private ? "Deny" : "Allow"
-  tags                          = local.tags
-}
-
-module "language" {
-  source = "./modules/language"
-  count  = var.enable_language_pii ? 1 : 0
-
-  name                          = local.names.language
-  resource_group_name           = azurerm_resource_group.main.name
-  location                      = local.locations.language
-  local_auth_enabled            = !var.disable_local_auth
-  public_network_access_enabled = !local.private
-  network_default_action        = local.private ? "Deny" : "Allow"
-  tags                          = local.tags
+  name                                      = local.names.foundry
+  resource_group_name                       = azurerm_resource_group.main.name
+  location                                  = local.locations.foundry
+  deployments                               = var.openai_deployments
+  local_auth_enabled                        = !var.disable_local_auth
+  public_network_access_enabled             = !local.private
+  network_default_action                    = local.private ? "Deny" : "Allow"
+  project_name                             = var.foundry_project_name
+  enable_application_insights_connection   = true
+  application_insights_id                  = module.monitoring.app_insights_id
+  application_insights_instrumentation_key = module.monitoring.app_insights_instrumentation_key
+  tags                                     = local.tags
 }
 
 module "redis" {
@@ -220,26 +184,19 @@ module "private_endpoints" {
   subnet_id           = module.network[0].subnet_ids.private_endpoints
   endpoints = merge(
     {
-      for k in keys(local.openai_accounts) : "openai-${k}" => {
-        resource_id = module.openai.ids[k]
-        subresource = "account"
-        dns_zone_id = module.network[0].private_dns_zone_ids["openai"]
+      # One PE; both DNS zones so *.openai.azure.com and *.cognitiveservices.azure.com resolve privately.
+      foundry = {
+        resource_id  = module.foundry.id
+        subresource  = "account"
+        dns_zone_ids = [
+          module.network[0].private_dns_zone_ids["openai"],
+          module.network[0].private_dns_zone_ids["cognitive"],
+        ]
       }
-    },
-    {
       search = { resource_id = module.search.id, subresource = "searchService", dns_zone_id = module.network[0].private_dns_zone_ids["search"] }
       vault  = { resource_id = module.keyvault.id, subresource = "vault", dns_zone_id = module.network[0].private_dns_zone_ids["vault"] }
       blob   = { resource_id = module.storage.id, subresource = "blob", dns_zone_id = module.network[0].private_dns_zone_ids["blob"] }
     },
-    var.enable_content_safety ? {
-      contentsafety = { resource_id = module.content_safety[0].id, subresource = "account", dns_zone_id = module.network[0].private_dns_zone_ids["cognitive"] }
-    } : {},
-    var.enable_language_pii ? {
-      language = { resource_id = module.language[0].id, subresource = "account", dns_zone_id = module.network[0].private_dns_zone_ids["cognitive"] }
-    } : {},
-    var.enable_foundry ? {
-      foundry = { resource_id = module.foundry[0].id, subresource = "account", dns_zone_id = module.network[0].private_dns_zone_ids["cognitive"] }
-    } : {},
     var.enable_semantic_cache ? {
       redis = { resource_id = module.redis[0].id, subresource = "redisEnterprise", dns_zone_id = module.network[0].private_dns_zone_ids["redis"] }
     } : {}
@@ -248,7 +205,8 @@ module "private_endpoints" {
 }
 
 # ---------------------------------------------------------------------------
-# AI gateway (APIM): the only door to Azure OpenAI, AI Search and Content Safety
+# AI gateway (APIM): only door to Foundry (OpenAI / CS / Language) and AI Search.
+# Quotas: azure-openai-token-limit + rate-limit-by-key on CS/Language/Search policies.
 # ---------------------------------------------------------------------------
 module "apim" {
   source = "./modules/apim"
@@ -267,9 +225,9 @@ module "apim" {
   app_insights_id                = module.monitoring.app_insights_id
   app_insights_connection_string = module.monitoring.app_insights_connection_string
   openai_backends = {
-    for k in keys(local.openai_accounts) : k => {
-      endpoint = module.openai.endpoints[k]
-      location = local.openai_accounts[k]
+    primary = {
+      endpoint = module.foundry.endpoint
+      location = local.locations.foundry
     }
   }
   openai_deployment_names        = keys(var.openai_deployments)
@@ -279,9 +237,9 @@ module "apim" {
   search_index_name              = var.search_index_name
   search_calls_per_minute        = var.apim_search_calls_per_minute
   enable_content_safety          = var.enable_content_safety
-  content_safety_endpoint        = var.enable_content_safety ? module.content_safety[0].endpoint : null
+  content_safety_endpoint        = var.enable_content_safety ? module.foundry.endpoint : null
   enable_language                = var.enable_language_pii
-  language_endpoint              = var.enable_language_pii ? module.language[0].endpoint : null
+  language_endpoint              = var.enable_language_pii ? module.foundry.endpoint : null
   enable_semantic_cache          = var.enable_semantic_cache
   redis                          = var.enable_semantic_cache ? { id = module.redis[0].id, hostname = module.redis[0].hostname, primary_access_key = module.redis[0].primary_access_key } : null
   semantic_cache_score_threshold = var.semantic_cache_score_threshold
@@ -289,47 +247,62 @@ module "apim" {
   tags                           = local.tags
 }
 
+# Register APIM as the Foundry project AI gateway (portal/evals go through quotas).
+# After APIM so subscription key is available; avoids module cycle with backends.
+resource "azapi_resource" "foundry_apim_gateway" {
+  # Static count (known at plan): project + subscription-key auth mode.
+  count     = var.foundry_project_name != null && local.apim_subscription_required ? 1 : 0
+  type      = "Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview"
+  name      = "apim-ai-gateway"
+  parent_id = module.foundry.project_id
+  body = {
+    properties = {
+      category      = "ApiManagement"
+      target        = "${trimsuffix(module.apim.gateway_url, "/")}/openai"
+      authType      = "ApiKey"
+      isSharedToAll = true
+      credentials = {
+        key = module.apim.subscription_primary_key
+      }
+      metadata = {
+        ApiType             = "Azure"
+        ResourceId          = module.apim.id
+        deploymentInPath    = "true"
+        inferenceAPIVersion = var.openai_api_version
+        modelDiscovery      = "false"
+      }
+    }
+  }
+  schema_validation_enabled = false
+}
+
 # ---------------------------------------------------------------------------
 # Least-privilege role assignments
-#  - APIM (system MI): calls Azure OpenAI, Content Safety, AI Search (read), reads Key Vault secrets.
-#  - AI Search (system MI): integrated vectorisation (embeddings) and reading KB blobs.
-#  - Ingestion (user-assigned MI): reads KB blobs, writes the index, embeds.
-#  - Deployer (optional): the identity running Terraform, for setup and the ingestion script.
+#  - APIM (system MI): Foundry OpenAI User + Cognitive Services User (CS/Language), Search read, KV.
+#  - AI Search / ingest: embeddings via Foundry; blob + index roles.
 # ---------------------------------------------------------------------------
 module "rbac" {
   source = "./modules/rbac"
 
   assignments = merge(
     {
-      for k in keys(local.openai_accounts) : "apim-openai-${k}" => {
-        scope = module.openai.ids[k], role = "Cognitive Services OpenAI User", principal_id = module.apim.principal_id, principal_type = "ServicePrincipal"
-      }
-    },
-    {
+      "apim-foundry-openai"  = { scope = module.foundry.id, role = "Cognitive Services OpenAI User", principal_id = module.apim.principal_id, principal_type = "ServicePrincipal" }
+      "apim-foundry-user"    = { scope = module.foundry.id, role = "Cognitive Services User", principal_id = module.apim.principal_id, principal_type = "ServicePrincipal" }
       "app-kb-blob-writer"   = { scope = "${module.storage.id}/blobServices/default/containers/${var.kb_container_name}", role = "Storage Blob Data Contributor", principal_id = module.identity.principal_ids["app"], principal_type = "ServicePrincipal" }
       "apim-search-reader"   = { scope = module.search.id, role = "Search Index Data Reader", principal_id = module.apim.principal_id, principal_type = "ServicePrincipal" }
       "apim-kv-secrets"      = { scope = module.keyvault.id, role = "Key Vault Secrets User", principal_id = module.apim.principal_id, principal_type = "ServicePrincipal" }
-      "search-openai"        = { scope = module.openai.ids["primary"], role = "Cognitive Services OpenAI User", principal_id = module.search.principal_id, principal_type = "ServicePrincipal" }
+      "search-foundry"       = { scope = module.foundry.id, role = "Cognitive Services OpenAI User", principal_id = module.search.principal_id, principal_type = "ServicePrincipal" }
       "search-blob-read"     = { scope = module.storage.id, role = "Storage Blob Data Reader", principal_id = module.search.principal_id, principal_type = "ServicePrincipal" }
       "ingest-blob-read"     = { scope = module.storage.id, role = "Storage Blob Data Reader", principal_id = module.identity.principal_ids["ingest"], principal_type = "ServicePrincipal" }
       "ingest-search-writer" = { scope = module.search.id, role = "Search Index Data Contributor", principal_id = module.identity.principal_ids["ingest"], principal_type = "ServicePrincipal" }
-      "ingest-openai"        = { scope = module.openai.ids["primary"], role = "Cognitive Services OpenAI User", principal_id = module.identity.principal_ids["ingest"], principal_type = "ServicePrincipal" }
+      "ingest-foundry"       = { scope = module.foundry.id, role = "Cognitive Services OpenAI User", principal_id = module.identity.principal_ids["ingest"], principal_type = "ServicePrincipal" }
     },
-    var.enable_content_safety ? {
-      "apim-content-safety" = { scope = module.content_safety[0].id, role = "Cognitive Services User", principal_id = module.apim.principal_id, principal_type = "ServicePrincipal" }
-    } : {},
-    var.enable_language_pii ? {
-      "apim-language" = { scope = module.language[0].id, role = "Cognitive Services User", principal_id = module.apim.principal_id, principal_type = "ServicePrincipal" }
-    } : {},
-    var.enable_foundry ? {
-      "apim-foundry" = { scope = module.foundry[0].id, role = "Cognitive Services User", principal_id = module.apim.principal_id, principal_type = "ServicePrincipal" }
-    } : {},
     var.grant_deployer_data_roles ? {
       "deployer-kv-secrets"     = { scope = module.keyvault.id, role = "Key Vault Secrets Officer", principal_id = data.azurerm_client_config.current.object_id }
       "deployer-search-index"   = { scope = module.search.id, role = "Search Index Data Contributor", principal_id = data.azurerm_client_config.current.object_id }
       "deployer-search-service" = { scope = module.search.id, role = "Search Service Contributor", principal_id = data.azurerm_client_config.current.object_id }
       "deployer-blob"           = { scope = module.storage.id, role = "Storage Blob Data Contributor", principal_id = data.azurerm_client_config.current.object_id }
-      "deployer-openai"         = { scope = module.openai.ids["primary"], role = "Cognitive Services OpenAI User", principal_id = data.azurerm_client_config.current.object_id }
+      "deployer-foundry"        = { scope = module.foundry.id, role = "Cognitive Services OpenAI User", principal_id = data.azurerm_client_config.current.object_id }
       "deployer-acr-push"       = { scope = module.hosting.registry_id, role = "AcrPush", principal_id = data.azurerm_client_config.current.object_id }
     } : {}
   )
@@ -442,7 +415,7 @@ module "hosting" {
       KB_BLOB_CONTAINER_URL             = local.kb_container_url
       AZURE_SEARCH_SERVICE_ENDPOINT     = "https://${local.names.search}.search.windows.net"
       AZURE_SEARCH_INDEX                = var.search_index_name
-      AZURE_OPENAI_ENDPOINT             = module.openai.endpoints["primary"]
+      AZURE_OPENAI_ENDPOINT             = module.foundry.endpoint
       AZURE_OPENAI_EMBEDDING_DEPLOYMENT = local.embedding_deployment
       AZURE_OPENAI_API_VERSION          = var.openai_api_version
     }
@@ -464,20 +437,15 @@ module "diagnostics" {
   source = "./modules/diagnostics"
 
   log_analytics_workspace_id = module.monitoring.log_analytics_workspace_id
-  targets = merge(
-    { for k in keys(local.openai_accounts) : "openai-${k}" => { resource_id = module.openai.ids[k] } },
-    {
-      search          = { resource_id = module.search.id }
-      keyvault        = { resource_id = module.keyvault.id }
-      apim            = { resource_id = module.apim.id }
-      storage-blob    = { resource_id = module.storage.blob_service_id, metric_category = "Transaction" }
-      storage-account = { resource_id = module.storage.id, metric_category = "Transaction", logs = false }
-      registry        = { resource_id = module.hosting.registry_id }
-    },
-    var.enable_content_safety ? { contentsafety = { resource_id = module.content_safety[0].id } } : {},
-    var.enable_language_pii ? { language = { resource_id = module.language[0].id } } : {},
-    var.enable_foundry ? { foundry = { resource_id = module.foundry[0].id } } : {}
-  )
+  targets = {
+    foundry         = { resource_id = module.foundry.id }
+    search          = { resource_id = module.search.id }
+    keyvault        = { resource_id = module.keyvault.id }
+    apim            = { resource_id = module.apim.id }
+    storage-blob    = { resource_id = module.storage.blob_service_id, metric_category = "Transaction" }
+    storage-account = { resource_id = module.storage.id, metric_category = "Transaction", logs = false }
+    registry        = { resource_id = module.hosting.registry_id }
+  }
 }
 
 module "governance" {

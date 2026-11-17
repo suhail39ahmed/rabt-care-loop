@@ -62,17 +62,12 @@ variable "allowed_locations" {
 
 variable "location_overrides" {
   description = <<-EOT
-    Per-service region overrides for services or models that are not available in var.location.
-    Keys: openai, content_safety, language, foundry, apim, redis, search.
-    Default: Azure OpenAI, Content Safety and Foundry in Australia East, because Southeast Asia has no regional
-    Standard deployment of gpt-4.1-mini / text-embedding-3-small and no standalone Content Safety
-    text moderation or Prompt Shields (see infra/terraform/README.md, Regions).
+    Per-service region overrides. Keys: foundry, apim, redis, search (legacy openai/content_safety/language still accepted and map into foundry).
+    Default: Foundry in Australia East (models + Content Safety availability). See README Regions.
   EOT
   type        = map(string)
   default = {
-    openai         = "australiaeast"
-    content_safety = "australiaeast"
-    foundry        = "australiaeast"
+    foundry = "australiaeast"
   }
 
   validation {
@@ -187,13 +182,13 @@ variable "openai_deployments" {
 }
 
 variable "openai_secondary_location" {
-  description = "Optional second Azure OpenAI account (same deployments) used as failover in the APIM backend pool. null = none."
+  description = "Deprecated no-op (single Foundry backend). Kept so older tfvars do not fail."
   type        = string
   default     = null
 }
 
 variable "disable_local_auth" {
-  description = "Disable API keys on Azure OpenAI, Content Safety and AI Search (Entra ID / managed identity only). Rabt reaches them through APIM."
+  description = "Disable API keys on Foundry and AI Search (Entra ID / managed identity only). Rabt reaches AI through APIM."
   type        = bool
   default     = true
 }
@@ -246,29 +241,28 @@ variable "search_index_name" {
 # ---------------------------------------------------------------------------
 variable "enable_foundry" {
   description = <<-EOT
-    Create a Microsoft Foundry (AIServices) hub + pilot project for Content Safety / Language PII
-    portal, evals and App Insights–backed improve-over-time. APIM remains the production AI gateway;
-    see docs/foundry-ai.md.
+    Required true. Foundry (AIServices) is the sole AI backend (OpenAI deployments, Content Safety,
+    Language PII) behind the APIM AI gateway. See docs/foundry-ai.md.
   EOT
   type        = bool
   default     = true
 }
 
 variable "foundry_project_name" {
-  description = "Foundry project name under the AIServices account (null skips the project)."
+  description = "Foundry project name under the AIServices account (null skips the project and APIM gateway connection)."
   type        = string
   default     = "rabt-pilot"
 }
 
 variable "enable_content_safety" {
-  description = "Create Azure AI Content Safety (text moderation + Prompt Shields)."
+  description = "Expose Content Safety API on APIM (backend = Foundry multi-service endpoint)."
   type        = bool
   default     = true
 }
 
 variable "enable_language_pii" {
   description = <<-EOT
-    Create Azure AI Language and turn on Language PII detection in the API (LANGUAGE_PII_ENABLED).
+    Expose Language PII on APIM (backend = Foundry) and set LANGUAGE_PII_ENABLED on the API.
     Runs after the regex scrubber; if it is on and errors, model calls fail closed (templates are used).
   EOT
   type        = bool

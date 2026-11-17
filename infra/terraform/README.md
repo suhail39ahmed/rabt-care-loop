@@ -1,19 +1,20 @@
 # Rabt – Azure infrastructure (Terraform)
 
-One Terraform stack provisions everything Rabt needs on Azure: the app hosting (Container Apps + ACR), the AI services (Azure OpenAI, AI Search, Content Safety, Azure AI Language for PII detection, Microsoft Foundry hub, optional Redis semantic cache), the APIM AI gateway in front of them, and the security baseline.
+One Terraform stack provisions everything Rabt needs on Azure: the app hosting (Container Apps + ACR), **Microsoft Foundry** as the sole AI backend (OpenAI deployments + Content Safety + Language PII), AI Search, optional Redis semantic cache, the **APIM AI gateway** in front of Foundry (with the project registered to that gateway and App Insights connected), and the security baseline.
 GitHub Actions runs it (`.github/workflows/infra.yml`) and deploys the app images (`.github/workflows/deploy.yml`). See [First-time bootstrap](#first-time-bootstrap) for the few things created by hand.
 
 ```
 Browser ──HTTPS──► ca-rabt-web-pilot (Next.js) ──HTTPS──► ca-rabt-api-pilot (FastAPI)
                                                                  │ api-key (Container Apps secret)
                                                                  ▼
-                                          apim-rabt-pilot-sea (AI gateway, External VNet mode)
+                                          apim-rabt-pilot-sea (AI gateway: TPM / rate limits / MI)
                                                                  │ managed identity, no service keys
-                         ┌───────────────────────────┬───────────┴──────────────┐
-                         ▼                           ▼                          ▼
-              oai-rabt-pilot-aue          srch-rabt-pilot-sea        cs-rabt-pilot-aue
-              (pool + circuit breaker)     (read-only KB index)        (Prompt Shields, moderation)
-                 all behind private endpoints when enable_private_networking = true
+                         ┌───────────────────────────────────────┴──────────────┐
+                         ▼                                                      ▼
+              aif-rabt-pilot-aue (Foundry AIServices)               srch-rabt-pilot-sea
+              OpenAI + Content Safety + Language PII                 (read-only KB index)
+              project rabt-pilot ← APIM gateway + App Insights
+                 behind private endpoints when enable_private_networking = true
 
 ca-rabt-api-pilot ──signed A2A (HMAC)──► ca-rabt-insurer-pilot (synthetic payer agent, RABT_ROLE=insurer)
 caj-rabt-ingest-pilot (hourly job, ingestion identity): KB blob container ──► embeddings ──► srch-rabt-pilot-sea
@@ -44,11 +45,8 @@ infra/terraform/
     ├── keyvault           Key Vault (RBAC, purge protection, firewall)
     ├── keyvault_secret    secrets with expiry, written only when the vault is reachable
     ├── storage            KB document storage (no shared keys, TLS 1.2, versioning)
-    ├── openai             Azure OpenAI accounts + router deployments
+    ├── foundry            Microsoft Foundry (AIServices + deployments + project + App Insights)
     ├── search             AI Search (RBAC only)
-    ├── foundry            Microsoft Foundry hub (AIServices + pilot project)
-    ├── content_safety     Content Safety (Prompt Shields)
-    ├── language           Azure AI Language (PII detection, layered after the regex scrubber)
     ├── redis              Azure Managed Redis for the APIM semantic cache (optional)
     ├── apim               API Management AI gateway: APIs, policies, backends, product
     ├── container_apps     ACR + Container Apps environment + API and web apps
@@ -64,11 +62,8 @@ infra/terraform/
 |---|---|
 | Resource group | `rg-rabt-pilot-sea` |
 | API Management | `apim-rabt-pilot-sea` |
-| Azure OpenAI | `oai-rabt-pilot-aue` (failover account: `oai-rabt-pilot-<region>-2`) |
+| Foundry (AIServices) | `aif-rabt-pilot-aue` (project `rabt-pilot`; OpenAI + CS + Language) |
 | AI Search | `srch-rabt-pilot-sea` |
-| Content Safety | `cs-rabt-pilot-aue` |
-| Foundry (AIServices) | `aif-rabt-pilot-aue` (`enable_foundry`, project `rabt-pilot`) |
-| Azure AI Language (PII) | `lang-rabt-pilot-sea` |
 | Key Vault | `kv-rabt-pilot-sea` |
 | Storage (KB docs) | `strabtpilotseakb` |
 | Container registry | `crrabtpilotsea` |
@@ -89,14 +84,13 @@ APIM, Key Vault, Storage, AI Search, Azure OpenAI and ACR names are global. If o
 | Area | Module | Notes |
 |---|---|---|
 | Hosting | `container_apps` | ACR (admin user off) and a Container Apps environment (VNet-integrated when private). Two apps run as a user-assigned identity with AcrPull. The APIM key and the webhook secret are Container Apps secrets, never env values in images |
-| LLM | `openai` | `small`, `strong` and `embedding` deployments for the LLM router. Local (key) auth is off |
+| AI backend | `foundry` | AIServices account + chat/embed deployments + project; App Insights connection; APIM registered as project AI gateway |
 | Retrieval | `search`, `storage` | RBAC-only Search. KB docs live in a private blob container; the ingestion script creates the index |
-| Safety | `content_safety` | Prompt Shields + text analysis, local auth off |
-| Gateway | `apim` | Four APIs (OpenAI, Search, Content Safety, Language PII), one product and one subscription. Policies are in `modules/apim/policies/` |
+| Gateway | `apim` | APIs (OpenAI, Search, Content Safety, Language PII) all backed by Foundry or Search. Quotas in policies |
 | Cache (optional) | `redis` | `enable_semantic_cache` |
 | Secrets | `keyvault`, `keyvault_secret` | RBAC, purge protection, 90-day soft delete. Secrets carry an expiry |
 | Identity | `identity`, `rbac` | APIM, Search, app and ingestion identities with least-privilege roles |
-| Network (default on) | `network`, `private_endpoints` | VNet with a PE subnet, APIM subnet and apps subnet (NSG on each). Private endpoints and DNS for AOAI, Search, KV, Storage, Content Safety, Language and Redis |
+| Network (default on) | `network`, `private_endpoints` | VNet with a PE subnet, APIM subnet and apps subnet (NSG on each). Private endpoints and DNS for Foundry, Search, KV, Storage and Redis |
 | Observability | `monitoring`, `diagnostics` | Every resource sends allLogs + metrics to Log Analytics. App Insights masks IPs |
 | Governance | `governance` + root guardrails | Budget alerts, optional delete lock, optional Defender plans, region allowlist, tags |
 
@@ -114,9 +108,9 @@ APIM, Key Vault, Storage, AI Search, Azure OpenAI and ACR names are global. If o
 
 | Principal | Role | Scope |
 |---|---|---|
-| APIM (system MI) | Cognitive Services OpenAI User / Cognitive Services User / Search Index Data Reader / Key Vault Secrets User | AOAI accounts / Content Safety and Language / Search / Key Vault |
-| Search (system MI) | Cognitive Services OpenAI User, Storage Blob Data Reader | primary AOAI, KB storage |
-| Ingestion (user MI) | Storage Blob Data Reader, Search Index Data Contributor, Cognitive Services OpenAI User | KB storage, Search, primary AOAI |
+| APIM (system MI) | Cognitive Services OpenAI User / Cognitive Services User / Search Index Data Reader / Key Vault Secrets User | Foundry / Search / Key Vault |
+| Search (system MI) | Cognitive Services OpenAI User, Storage Blob Data Reader | Foundry, KB storage |
+| Ingestion (user MI) | Storage Blob Data Reader, Search Index Data Contributor, Cognitive Services OpenAI User | KB storage, Search, Foundry |
 | App (user MI) | AcrPull | container registry |
 | Deployer (`grant_deployer_data_roles`) | Key Vault Secrets Officer, Search Index Data Contributor, Search Service Contributor, Storage Blob Data Contributor, Cognitive Services OpenAI User, AcrPush | for setup, image pushes and the ingestion script |
 

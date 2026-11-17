@@ -15,6 +15,6 @@ resource "azurerm_private_endpoint" "this" {
 
   private_dns_zone_group {
     name                 = "default"
-    private_dns_zone_ids = [each.value.dns_zone_id]
+    private_dns_zone_ids = length(coalesce(each.value.dns_zone_ids, [])) > 0 ? each.value.dns_zone_ids : [each.value.dns_zone_id]
   }
 }

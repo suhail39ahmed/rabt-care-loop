@@ -15,7 +15,7 @@ variable "name" {
 }
 
 variable "location" {
-  description = "Region (use australiaeast when Content Safety must colocate)."
+  description = "Region (australiaeast when Content Safety / model SKUs require it)."
   type        = string
 }
 
@@ -41,6 +41,18 @@ variable "network_default_action" {
   type        = string
 }
 
+variable "deployments" {
+  description = "OpenAI model deployments on this Foundry account (chat + embeddings)."
+  type = map(object({
+    role          = string
+    model_name    = string
+    model_version = string
+    sku_name      = string
+    capacity      = number
+  }))
+  default = {}
+}
+
 variable "project_name" {
   description = "Optional Foundry project resource name (null = account only)."
   type        = string
@@ -56,5 +68,24 @@ variable "project_display_name" {
 variable "project_description" {
   description = "Foundry project description."
   type        = string
-  default     = "Rabt care-loop pilot: Content Safety, Language PII, evals. Traffic via APIM AI gateway."
+  default     = "Rabt care-loop pilot: OpenAI, Content Safety, Language PII via APIM AI gateway; App Insights for tracing/evals."
+}
+
+variable "enable_application_insights_connection" {
+  description = "Create the Foundry ↔ Application Insights account connection."
+  type        = bool
+  default     = true
+}
+
+variable "application_insights_id" {
+  description = "Application Insights resource ID (required when enable_application_insights_connection)."
+  type        = string
+  default     = ""
+}
+
+variable "application_insights_instrumentation_key" {
+  description = "Application Insights instrumentation key for the Foundry connection."
+  type        = string
+  default     = ""
+  sensitive   = true
 }

@@ -7,21 +7,16 @@ environment = "pilot"
 location    = "southeastasia" # Singapore
 name_suffix = ""              # set e.g. "01" only if a global name (APIM, Key Vault, Storage, ACR...) is taken
 
-# Southeast Asia has no regional Standard deployment of gpt-4.1-mini / gpt-4o / text-embedding-3-small,
-# and standalone Content Safety (text moderation, Prompt Shields) is not offered there. Both run in
-# Australia East, so prompts are processed in Australia; everything else stays in Singapore.
-# Evidence and the GlobalStandard trade-off: infra/terraform/README.md, Regions.
+# Foundry (AIServices) hosts OpenAI + Content Safety + Language. Regional Standard for
+# gpt-4.1-mini / gpt-4o / text-embedding-3-small and Content Safety need Australia East.
 location_overrides = {
-  openai         = "australiaeast"
-  content_safety = "australiaeast"
-  foundry        = "australiaeast"
+  foundry = "australiaeast"
 }
-# openai_secondary_location: leave unset. No second APAC region in the allowlist offers these models as regional Standard.
 
 # Path B for demo: public endpoints, Entra-only (keys off). Path A needs VNet CIDR fix + ~US$45/mo. See #148.
 enable_private_networking = false
 
-# Foundry hub (AIServices + rabt-pilot project) for Content Safety / Language PII portal + App Insights. APIM stays the gateway.
+# Foundry is the sole AI backend; APIM is the AI gateway (project connection + quotas).
 enable_foundry       = true
 foundry_project_name = "rabt-pilot"
 
@@ -38,7 +33,9 @@ apim_sku_name       = "Developer_1"
 apim_publisher_name = "Rabt"
 apim_auth_mode      = "subscription_key"
 
+# APIM APIs onto the Foundry endpoint (not separate cognitive accounts).
 enable_content_safety = true
+enable_language_pii   = true
 enable_semantic_cache = false
 
 # Kill switch for the deployed API: false = templates only (safe default for a public demo).

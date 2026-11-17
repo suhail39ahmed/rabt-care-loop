@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
-"""Index the approved KB into Azure AI Search (#94).
+"""Index the approved KB into a versioned Azure AI Search index, or into a local offline index.
 
-Sources: `data/kb/*.md` (approved through PR review and shipped in the image), plus, with
-`--from-blob`, docs approved in the app and uploaded to the KB blob container (the Container Apps
-ingestion job uses this). Never reads `_pending`.
+Pipeline (services/agents/rag/pipeline.py): parse front matter -> keep `clinical_review_status: approved`
+-> heading-aware token chunks with overlap -> embeddings -> idempotent upsert -> delete rows of removed,
+changed or demoted docs. Never reads `_pending`.
 
-Steps: create/update the index (keyword + vector + semantic config), chunk each doc, skip docs whose
-content hash is already indexed, embed new chunks with Azure OpenAI, upload, delete chunks of docs that
-no longer exist. Auth: Microsoft Entra ID (DefaultAzureCredential: az login locally, the ingestion
-managed identity in Azure). No keys.
+  python scripts/rag_ingest.py                         # dry run: plan only, no network
+  python scripts/rag_ingest.py --offline               # local JSON index + hashing embedder, no Azure
+  python scripts/rag_ingest.py --apply                 # Azure (az login or managed identity)
+  python scripts/rag_ingest.py --from-blob --apply     # plus docs approved in the app (ingestion job)
 
-  python scripts/rag_ingest.py                    # dry run: print the plan, no Azure calls
-  python scripts/rag_ingest.py --apply            # index local data/kb
-  python scripts/rag_ingest.py --from-blob --apply
-
-Settings (env or flags): AZURE_SEARCH_SERVICE_ENDPOINT, AZURE_SEARCH_INDEX, AZURE_OPENAI_ENDPOINT,
-AZURE_OPENAI_EMBEDDING_DEPLOYMENT, KB_BLOB_CONTAINER_URL.
+Embeddings go through the APIM AI gateway when LLM_BASE_URL is set (subscription key LLM_API_KEY, or an
+Entra token for APIM_TOKEN_SCOPE), otherwise straight to AZURE_OPENAI_ENDPOINT with Entra ID.
+Settings: AZURE_SEARCH_SERVICE_ENDPOINT, AZURE_SEARCH_INDEX (default rabt-kb-v2), LLM_BASE_URL,
+AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_EMBEDDING_DEPLOYMENT, KB_BLOB_CONTAINER_URL.
 """
 
 from __future__ import annotations
@@ -25,89 +23,26 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
 
 import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "services"))
 
-from agents.rag.chunking import chunk_markdown, content_hash, detect_language, title_of
+from agents.rag import pipeline
+from agents.rag.pipeline import build_rows, index_schema  # noqa: F401  (re-exported for tests)
 
-SEARCH_API = "2024-07-01"
-OPENAI_API = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21")
-DIMENSIONS = 1536  # text-embedding-3-small
-
-
-def index_schema(name: str) -> dict[str, Any]:
-    return {
-        "name": name,
-        "fields": [
-            {"name": "id", "type": "Edm.String", "key": True, "filterable": True},
-            {"name": "doc_id", "type": "Edm.String", "filterable": True, "facetable": True},
-            {"name": "title", "type": "Edm.String", "searchable": True},
-            {"name": "content", "type": "Edm.String", "searchable": True},
-            {"name": "language", "type": "Edm.String", "filterable": True},
-            {"name": "approved", "type": "Edm.Boolean", "filterable": True},
-            {"name": "approved_by", "type": "Edm.String", "filterable": True},
-            {"name": "doc_hash", "type": "Edm.String", "filterable": True},
-            {"name": "chunk", "type": "Edm.Int32", "sortable": True},
-            {
-                "name": "content_vector",
-                "type": "Collection(Edm.Single)",
-                "searchable": True,
-                "retrievable": False,
-                "dimensions": DIMENSIONS,
-                "vectorSearchProfile": "rabt-hnsw",
-            },
-        ],
-        "vectorSearch": {
-            "algorithms": [{"name": "hnsw", "kind": "hnsw"}],
-            "profiles": [{"name": "rabt-hnsw", "algorithm": "hnsw"}],
-        },
-        "semantic": {
-            "configurations": [
-                {
-                    "name": "rabt-semantic",
-                    "prioritizedFields": {
-                        "titleField": {"fieldName": "title"},
-                        "prioritizedContentFields": [{"fieldName": "content"}],
-                    },
-                }
-            ]
-        },
-    }
+OFFLINE_INDEX = ROOT / ".kb-index"
 
 
-def build_docs(sources: dict[str, str]) -> list[dict[str, Any]]:
-    """Chunk documents into index rows (without vectors)."""
-    rows = []
-    for name, text in sorted(sources.items()):
-        doc_id = Path(name).stem
-        h = content_hash(text)
-        approved_by = "seed"
-        if "approved_by:" in text:
-            approved_by = text.split("approved_by:", 1)[1].split()[0]
-        for i, chunk in enumerate(chunk_markdown(text)):
-            rows.append(
-                {
-                    "id": f"{doc_id}--{i}".replace(".", "_"),
-                    "doc_id": doc_id,
-                    "title": title_of(text, doc_id),
-                    "content": chunk,
-                    "language": detect_language(text),
-                    "approved": True,
-                    "approved_by": approved_by,
-                    "doc_hash": h,
-                    "chunk": i,
-                }
-            )
-    return rows
-
-
-def local_sources() -> dict[str, str]:
-    kb = ROOT / "data" / "kb"
+def local_sources(kb: Path | None = None) -> dict[str, str]:
+    kb = kb or Path(os.environ.get("KB_DIR") or ROOT / "data" / "kb")
     return {p.name: p.read_text(encoding="utf-8") for p in sorted(kb.glob("*.md"))}
+
+
+def build_docs(sources: dict[str, str]) -> list[dict]:
+    """Approved index rows without vectors (kept for older callers)."""
+    return build_rows(sources)[0]
 
 
 def _token(scope: str) -> str:
@@ -130,70 +65,60 @@ def blob_sources(container_url: str) -> dict[str, str]:
     return out
 
 
-def main() -> int:
+def azure_embedder(args: argparse.Namespace) -> pipeline.Embedder:
+    if args.embed_via == "apim":
+        key = os.environ.get("LLM_API_KEY")
+        scope = os.environ.get("APIM_TOKEN_SCOPE")
+        return pipeline.GatewayEmbedder(args.gateway, args.embedding_deployment, api_key=key,
+                                        token=(lambda: _token(scope)) if scope and not key else None)
+    emb = pipeline.GatewayEmbedder(args.openai_endpoint, args.embedding_deployment,
+                                   token=lambda: _token("https://cognitiveservices.azure.com/.default"))
+    emb.name = "azure-openai"
+    return emb
+
+
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--apply", action="store_true", help="call Azure (default is a dry run)")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--apply", action="store_true", help="index into Azure AI Search")
+    mode.add_argument("--offline", action="store_true", help="index into a local JSON file (no Azure)")
     ap.add_argument("--dry-run", action="store_true", help="kept for compatibility; dry run is the default")
     ap.add_argument("--from-blob", action="store_true")
+    ap.add_argument("--kb-dir", type=Path, default=None)
+    ap.add_argument("--offline-index", type=Path, default=None)
     ap.add_argument("--search-endpoint", default=os.environ.get("AZURE_SEARCH_SERVICE_ENDPOINT"))
-    ap.add_argument("--index", default=os.environ.get("AZURE_SEARCH_INDEX", "rabt-kb"))
+    ap.add_argument("--index", default=os.environ.get("AZURE_SEARCH_INDEX") or pipeline.DEFAULT_INDEX)
+    ap.add_argument("--gateway", default=os.environ.get("LLM_BASE_URL"))
     ap.add_argument("--openai-endpoint", default=os.environ.get("AZURE_OPENAI_ENDPOINT"))
     ap.add_argument("--embedding-deployment", default=os.environ.get("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "embed"))
+    ap.add_argument("--embed-via", choices=["apim", "direct"], default=None,
+                    help="default: apim when LLM_BASE_URL is set, else direct")
     ap.add_argument("--blob-container-url", default=os.environ.get("KB_BLOB_CONTAINER_URL"))
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
+    args.embed_via = args.embed_via or ("apim" if args.gateway else "direct")
 
-    # Docs shipped in the image (approved through PR review) + docs approved in the app (blob); blob wins.
-    sources = local_sources()
+    sources = local_sources(args.kb_dir)
     if args.from_blob and args.apply:
-        sources |= blob_sources(args.blob_container_url.rstrip("/"))
-    rows = build_docs(sources)
-    plan = {
-        "index": args.index,
-        "documents": len(sources),
-        "chunks": len(rows),
-        "languages": sorted({r["language"] for r in rows}),
-        "apply": args.apply,
-    }
-    if not args.apply:
-        print(json.dumps(plan | {"sample": rows[:1]}, ensure_ascii=False, indent=2))
+        sources |= blob_sources(args.blob_container_url.rstrip("/"))  # docs approved in the app win
+
+    if args.offline:
+        path = args.offline_index or OFFLINE_INDEX / f"{args.index}.json"
+        report = pipeline.sync(sources, pipeline.LocalIndexStore(path), pipeline.HashEmbedder(), index=args.index)
+        print(json.dumps(report | {"offline_index": str(path)}, ensure_ascii=False, indent=2))
         return 0
 
-    search = args.search_endpoint.rstrip("/")
-    sh = {"Authorization": f"Bearer {_token('https://search.azure.com/.default')}", "Content-Type": "application/json"}
-    r = httpx.put(f"{search}/indexes/{args.index}?api-version={SEARCH_API}", headers=sh,
-                  json=index_schema(args.index), timeout=60)
-    r.raise_for_status()
+    if not args.apply:
+        rows, skipped = build_rows(sources)
+        print(json.dumps({"index": args.index, "documents": len(sources), "approved_documents":
+                          len({r["doc_id"] for r in rows}), "skipped_not_approved": skipped, "chunks": len(rows),
+                          "embed_via": args.embed_via, "apply": False, "sample": rows[:1]}, ensure_ascii=False,
+                         indent=2))
+        return 0
 
-    # Which doc versions are already indexed?
-    r = httpx.post(f"{search}/indexes/{args.index}/docs/search?api-version={SEARCH_API}", headers=sh,
-                   json={"search": "*", "select": "id,doc_id,doc_hash", "top": 1000}, timeout=60)
-    r.raise_for_status()
-    existing = r.json().get("value", [])
-    have = {(d["doc_id"], d["doc_hash"]) for d in existing}
-    new_rows = [row for row in rows if (row["doc_id"], row["doc_hash"]) not in have]
-    current_ids = {row["id"] for row in rows}
-    stale = [d["id"] for d in existing if d["id"] not in current_ids or (d["doc_id"], d["doc_hash"]) not in
-             {(row["doc_id"], row["doc_hash"]) for row in rows}]
-
-    if new_rows:
-        oh = {"Authorization": f"Bearer {_token('https://cognitiveservices.azure.com/.default')}"}
-        url = (f"{args.openai_endpoint.rstrip('/')}/openai/deployments/{args.embedding_deployment}"
-               f"/embeddings?api-version={OPENAI_API}")
-        for i in range(0, len(new_rows), 16):
-            batch = new_rows[i : i + 16]
-            e = httpx.post(url, headers=oh, json={"input": [b["content"] for b in batch]}, timeout=60)
-            e.raise_for_status()
-            for b, d in zip(batch, sorted(e.json()["data"], key=lambda x: x["index"]), strict=True):
-                b["content_vector"] = d["embedding"]
-
-    actions = [{"@search.action": "delete", "id": i} for i in stale if i not in {r["id"] for r in new_rows}]
-    actions += [{"@search.action": "mergeOrUpload", **row} for row in new_rows]
-    if actions:
-        r = httpx.post(f"{search}/indexes/{args.index}/docs/index?api-version={SEARCH_API}", headers=sh,
-                       json={"value": actions}, timeout=120)
-        r.raise_for_status()
-    print(json.dumps(plan | {"uploaded": len(new_rows), "deleted": len(actions) - len(new_rows),
-                             "unchanged": len(rows) - len(new_rows)}, indent=2))
+    store = pipeline.AzureSearchStore(args.search_endpoint, args.index,
+                                      lambda: _token("https://search.azure.com/.default"))
+    report = pipeline.sync(sources, store, azure_embedder(args), index=args.index)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
 
 

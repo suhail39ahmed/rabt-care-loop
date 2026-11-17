@@ -46,8 +46,8 @@ APPROVED_SNIPPETS: dict[str, dict[str, str]] = {
         "ar": "شكراً لمشاركتك. يمكن للمنسق الاتصال بك أو مساعدتك في الحجز.",
     },
     "crisis": {
-        "en": "Please seek urgent medical help or contact emergency services if you are in danger.",
-        "ar": "يرجى طلب المساعدة الطبية العاجلة أو الاتصال بخدمات الطوارئ إذا كنت في خطر.",
+        "en": "Please seek urgent medical help now. In the UAE call 998 for an ambulance or 999 for police, or go to the nearest emergency department. A member of our care team will also contact you.",
+        "ar": "يرجى طلب المساعدة الطبية العاجلة الآن. في الإمارات اتصل بالرقم 998 للإسعاف أو 999 للشرطة، أو توجه إلى أقرب قسم طوارئ. سيتواصل معك أيضاً أحد أعضاء فريق الرعاية.",
     },
 }
 

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 
 type Pending = { id: string; title: string; language: string; reason?: string; suggested_by?: string; content: string };
-type Kb = { index_version: string; docs: Array<{ id: string; title: string; language: string; approved_by?: string }> };
+type Kb = { index_version: string; docs: Array<{ id: string; title: string; language: string; topic?: string; clinical_review_status?: string; approved_by?: string | null }> };
 
 const REVIEWERS = [
   { id: "human:gp-aisha", label: "Dr Aisha (physician)" },
@@ -76,7 +76,7 @@ export function KbReview() {
     <div>
       <div className="row-actions" style={{ justifyContent: "space-between", alignItems: "center", marginTop: 0 }}>
         <p className="muted small" style={{ margin: 0 }}>
-          {kb ? `${kb.docs.length} approved articles · index ${kb.index_version}` : "Loading…"}
+          {kb ? `${kb.docs.filter((d) => (d.clinical_review_status ?? "approved") === "approved").length} approved articles · index ${kb.index_version}` : "Loading…"}
         </p>
         <label className="muted small">
           Reviewing as{" "}

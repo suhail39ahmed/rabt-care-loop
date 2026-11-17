@@ -19,9 +19,35 @@ NO_DIAGNOSIS_PATTERNS = [
 RED_FLAG_PATTERNS = [
     r"\bsuicid",
     r"\bkill myself\b",
+    r"\bend my life\b",
+    r"\bwant to die\b",
+    r"\boverdose\b",
     r"\bchest pain\b",
-    r"\bcannot breathe\b",
+    r"\b(?:cannot|can't|can not) breathe\b",
+    r"\bheavy bleeding\b",
+    r"\bbleeding (?:heavily|a lot|won't stop)\b",
+    r"\bsevere (?:abdominal|stomach|belly) pain\b",
+    r"\b(?:fainted|passed out|unconscious)\b",
     r"انتحار",
+    r"أريد أن أموت",
+    r"إنهاء حياتي",
+    r"ألم (?:شديد )?في الصدر",
+    r"لا أستطيع التنفس",
+    r"نزيف شديد",
+    r"ألم شديد في البطن",
+    r"أغمي علي",
+]
+
+# Personal clinical questions the KB must never answer: route to a clinician callback instead.
+CLINICIAN_PATTERNS = [
+    r"\bdo i have (?:cancer|diabetes|a tumou?r|polyps?|hpv)\b",
+    r"\bam i (?:dying|going to die)\b",
+    r"\bis (?:it|this|my result) cancer\b",
+    r"\b(?:should|can) i (?:stop|skip|change|double) (?:my )?(?:medicine|medication|insulin|dose|tablets|blood thinner)",
+    r"\bhow much (?:insulin|medicine|medication)\b",
+    r"\bdiagnose me\b",
+    r"هل (?:عندي|لدي|أنا مصابة? ب) ?(?:ال)?(?:سرطان|سكري)",
+    r"هل (?:أوقف|أغير) (?:دوائي|الدواء|الأنسولين)",
 ]
 
 
@@ -31,6 +57,11 @@ def no_diagnosis(text: str) -> bool:
 
 def has_red_flag(text: str) -> bool:
     return any(re.search(p, text, re.IGNORECASE) for p in RED_FLAG_PATTERNS)
+
+
+def needs_clinician(text: str) -> bool:
+    """A personal diagnosis or medication question: a clinician must answer, not the KB."""
+    return any(re.search(p, text, re.IGNORECASE) for p in CLINICIAN_PATTERNS)
 
 
 def scrub_pii(text: str, tokens: dict[str, str] | None = None) -> str:

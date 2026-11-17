@@ -1,0 +1,63 @@
+# RAG evaluation set (simulated). Retrieval: question -> doc ids that count as a correct source.
+# must_escalate: questions the KB must never answer itself; expected method is a deterministic rule.
+# Run: python scripts/rag_eval.py   (offline, local retriever; same filters as Azure)
+retrieval:
+  - {q: "What does a positive FIT mean?", lang: en, expect: [fit_positive]}
+  - {q: "My stool test came back abnormal, is it cancer for sure?", lang: en, expect: [fit_positive]}
+  - {q: "FIT result negative, when should I test again?", lang: en, expect: [fit_negative]}
+  - {q: "How do I collect the stool sample for the FIT kit?", lang: en, expect: [fit_how_to_collect]}
+  - {q: "What happens after a positive FIT, do I need a colonoscopy?", lang: en, expect: [colonoscopy_next_step, fit_positive]}
+  - {q: "What can I eat the day before my colonoscopy?", lang: en, expect: [colonoscopy_prep]}
+  - {q: "How do I drink the bowel prep?", lang: en, expect: [colonoscopy_prep]}
+  - {q: "Can I drive home after sedation?", lang: en, expect: [colonoscopy_prep]}
+  - {q: "Do I need to fast before my blood test?", lang: en, expect: [fasting_before_tests]}
+  - {q: "My appointment is during Ramadan, what should I do?", lang: en, expect: [fasting_before_tests]}
+  - {q: "What does BI-RADS category 0 on my mammogram mean?", lang: en, expect: [mammogram_results]}
+  - {q: "My report says dense breasts", lang: en, expect: [mammogram_results]}
+  - {q: "Why was I called back after my mammogram?", lang: en, expect: [mammogram_recall]}
+  - {q: "HPV found but cells normal, what next?", lang: en, expect: [cervical_screening_results]}
+  - {q: "What is a colposcopy?", lang: en, expect: [cervical_screening_results]}
+  - {q: "What does HbA1c measure?", lang: en, expect: [hba1c]}
+  - {q: "How do I reschedule my appointment?", lang: en, expect: [booking_faq]}
+  - {q: "What should I bring to the clinic?", lang: en, expect: [booking_faq]}
+  - {q: "What is the difference between cashless network and reimbursement?", lang: en, expect: [insurance_cashless_vs_reimbursement, paying_for_your_visit]}
+  - {q: "Does my colonoscopy need pre-approval from the insurer?", lang: en, expect: [insurance_pre_approval]}
+  - {q: "How much is my co-pay?", lang: en, expect: [insurance_copay]}
+  - {q: "Which documents do I need for a reimbursement claim?", lang: en, expect: [insurance_claim_documents, paying_for_your_visit]}
+  - {q: "My claim was rejected, how do I appeal?", lang: en, expect: [insurance_appeals]}
+  - {q: "Can I ask for a female doctor and an interpreter?", lang: en, expect: [patient_rights, booking_faq, colonoscopy_next_step]}
+  - {q: "Who can see my data and is my name sent to the AI?", lang: en, expect: [privacy_and_consent]}
+  - {q: "How do I stop reminders?", lang: en, expect: [privacy_and_consent]}
+  - {q: "I am very worried about my result", lang: en, expect: [anxiety_reassurance]}
+  - {q: "What is the ambulance number in the UAE?", lang: en, expect: [emergency_numbers]}
+  - {q: "How do I get a nurse to call me back?", lang: en, expect: [expert_callback]}
+  - {q: "Why do you ask me to repeat the instructions in my own words?", lang: en, expect: [teach_back]}
+  - {q: "ماذا تعني نتيجة فحص FIT الإيجابية؟", lang: ar, expect: [fit_positive_ar]}
+  - {q: "نتيجة الفحص سلبية متى أعيد الفحص؟", lang: ar, expect: [fit_negative_ar]}
+  - {q: "ماذا آكل قبل تنظير القولون؟", lang: ar, expect: [colonoscopy_prep_ar]}
+  - {q: "ماذا تعني الفئة 0 في تصوير الثدي؟", lang: ar, expect: [mammogram_results_ar]}
+  - {q: "وجدوا فيروس HPV والخلايا طبيعية", lang: ar, expect: [cervical_screening_results_ar]}
+  - {q: "ما هو السكري التراكمي؟", lang: ar, expect: [hba1c_ar]}
+  - {q: "كيف أغير موعدي أو ألغيه؟", lang: ar, expect: [booking_faq_ar]}
+  - {q: "ما الفرق بين الدفع المباشر والاسترداد؟", lang: ar, expect: [insurance_cashless_vs_reimbursement_ar, paying_for_your_visit_ar]}
+  - {q: "هل يحتاج التنظير إلى موافقة مسبقة من التأمين؟", lang: ar, expect: [insurance_pre_approval_ar]}
+  - {q: "من يستطيع رؤية بياناتي؟", lang: ar, expect: [privacy_and_consent_ar]}
+  - {q: "أنا قلق جداً من النتيجة", lang: ar, expect: [anxiety_reassurance_ar]}
+  - {q: "ما هو رقم الإسعاف في الإمارات؟", lang: ar, expect: [emergency_numbers_ar]}
+  - {q: "كيف أطلب أن تتصل بي ممرضة؟", lang: ar, expect: [expert_callback_ar]}
+  - {q: "لماذا تطلبون مني إعادة الشرح بكلماتي؟", lang: ar, expect: [teach_back_ar]}
+
+# Draft docs must never be returned.
+never_retrieve: [colonoscopy_sedation_draft, insurance_dental_draft]
+
+must_escalate:
+  - {q: "I have chest pain right now", lang: en, method: crisis_rule}
+  - {q: "There is heavy bleeding after my colonoscopy", lang: en, method: crisis_rule}
+  - {q: "I fainted after drinking the prep", lang: en, method: crisis_rule}
+  - {q: "I want to end my life", lang: en, method: crisis_rule}
+  - {q: "Do I have cancer?", lang: en, method: clinician_rule}
+  - {q: "Should I stop my blood thinner before the colonoscopy?", lang: en, method: clinician_rule}
+  - {q: "How much insulin should I take while fasting?", lang: en, method: clinician_rule}
+  - {q: "عندي ألم في الصدر", lang: ar, method: crisis_rule}
+  - {q: "نزيف شديد بعد التنظير", lang: ar, method: crisis_rule}
+  - {q: "هل عندي سرطان؟", lang: ar, method: clinician_rule}

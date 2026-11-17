@@ -1,6 +1,7 @@
 """Grounded answers to patient questions from the approved KB (#93, #98, #100).
 
-1. Crisis language -> urgent-help text + human hand-off (deterministic, never a model).
+1. Crisis language -> urgent-help text (998 / 999) + human hand-off (deterministic, never a model).
+   Personal diagnosis / medication questions -> clinician callback (deterministic, the KB never answers them).
 2. Injection attempt -> refuse + hand-off.
 3. App cache (scoped by language + KB index version).
 4. Retrieve approved chunks. Nothing found -> "ask your care team" + a KB gap for a clinician.
@@ -15,15 +16,19 @@ import re
 from typing import Any
 
 from agents.common import semantic_cache
-from agents.common.guardrails import content_safe, has_red_flag, no_diagnosis
+from agents.common.guardrails import content_safe, has_red_flag, needs_clinician, no_diagnosis
 from agents.common.injection import deny_listed
 from agents.rag.kb import index_version
 from agents.rag.retrieve import retrieve
 
 TEXT = {
     "crisis": {
-        "en": "Please seek urgent medical help or contact emergency services if you are in danger.",
-        "ar": "يرجى طلب المساعدة الطبية العاجلة أو الاتصال بخدمات الطوارئ إذا كنت في خطر.",
+        "en": "Please seek urgent medical help now. In the UAE call 998 for an ambulance or 999 for police, or go to the nearest emergency department. A member of our care team will also contact you.",
+        "ar": "يرجى طلب المساعدة الطبية العاجلة الآن. في الإمارات اتصل بالرقم 998 للإسعاف أو 999 للشرطة، أو توجه إلى أقرب قسم طوارئ. سيتواصل معك أيضاً أحد أعضاء فريق الرعاية.",
+    },
+    "clinician": {
+        "en": "That needs a clinician who knows your results, so I won't guess. I have asked our care team to call you back. General information is in our approved FAQ.",
+        "ar": "هذا السؤال يحتاج إلى طبيب يعرف نتائجك، لذلك لن أخمن. طلبت من فريق الرعاية الاتصال بك. المعلومات العامة موجودة في الأسئلة الشائعة المعتمدة.",
     },
     "blocked": {
         "en": "I can only use approved screening FAQs. Please ask your care team.",
@@ -45,7 +50,12 @@ def _t(key: str, lang: str) -> str:
 
 
 def _extract(hit: dict[str, Any], lang: str) -> str:
-    paras = [p.strip() for p in hit["text"].split("\n\n") if p.strip() and not p.strip().startswith("#")]
+    text = hit["text"]
+    heading = hit.get("heading")
+    if heading and text.startswith(heading):
+        text = text[len(heading):]
+    paras = [p.strip() for p in text.split("\n\n")
+             if p.strip() and not p.strip().startswith(("#", "_Simulated", "_محتوى"))]
     body = re.sub(r"\*\*", "", " ".join(paras[:2]))[:500]
     text = _t("preface", lang) + body
     return text if no_diagnosis(text) else _t("none", lang)
@@ -69,6 +79,14 @@ async def answer(question: str, *, language: str = "en", pii_tokens: dict[str, s
     if has_red_flag(question):
         return {"answer": _t("crisis", lang), "hand_off": True, "citations": [], "method": "crisis_rule",
                 "ai_generated": False, "gap": False}
+    if needs_clinician(question):
+        # Never answered by the KB or a model; general approved info is attached, with a clinician callback.
+        hits = await retrieve(question, language=lang, k=1)
+        general = f" {_extract(hits[0], lang)}" if hits else ""
+        return {"answer": _t("clinician", lang) + general, "hand_off": True, "callback": "clinician",
+                "citations": [{"id": h["doc_id"], "title": h.get("title"), "chunk": h["id"], "source": h.get("source")}
+                              for h in hits],
+                "method": "clinician_rule", "ai_generated": False, "gap": False}
     if deny_listed(question):
         return {"answer": _t("blocked", lang), "hand_off": True, "blocked_injection": True, "citations": [],
                 "method": "injection_rule", "ai_generated": False, "gap": False}

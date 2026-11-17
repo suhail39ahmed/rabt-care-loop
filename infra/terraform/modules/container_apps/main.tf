@@ -252,6 +252,14 @@ resource "azurerm_container_app_job" "ingest" {
     identity = var.ingest_job.identity_id
   }
 
+  dynamic "secret" {
+    for_each = toset(values(var.ingest_job.secret_env))
+    content {
+      name  = secret.value
+      value = var.secrets[secret.value]
+    }
+  }
+
   template {
     container {
       name   = "ingest"
@@ -274,6 +282,14 @@ resource "azurerm_container_app_job" "ingest" {
         content {
           name  = env.key
           value = env.value
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.ingest_job.secret_env
+        content {
+          name        = env.key
+          secret_name = env.value
         }
       }
     }

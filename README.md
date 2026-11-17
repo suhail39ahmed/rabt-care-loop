@@ -104,7 +104,7 @@ The **Coordinator** (`services/orchestrator/app/coordinator.py`) is the supervis
 | Escalation | `services/agents/escalation/` | Deterministic, **no LLM** | Critical ladder; patient SMS never contains values |
 | Patient Comms | `services/agents/comms/` | Approved templates; LLM optional | AR/EN message + teach-back |
 | Navigator | `services/agents/navigator/` | Deterministic scoring | Ranks providers with a payment path per option: cashless at network hospitals first, pay-and-claim reimbursement when the plan offers it, out-of-network excluded unless reimbursable or explicit self-pay |
-| Reassurance | `services/agents/reassurance/`, `services/agents/rag/` | Approved KB (BM25 locally, Azure AI Search hybrid + semantic in Azure); strong model only for grounded, validated answers | Cited, non-diagnostic answers; red flags → human; gaps → KB suggestion for clinician approval |
+| Reassurance | `services/agents/reassurance/`, `services/agents/rag/` | Approved KB (BM25 locally, Azure AI Search hybrid + semantic in Azure); strong model only for grounded, validated answers | Cited, non-diagnostic answers; red flags → 998/999 + human; personal diagnosis/medication → clinician callback; gaps → KB suggestion for clinician approval. KB, pipeline and eval: [docs/rag.md](docs/rag.md) |
 | Insurer (A2A) | `services/insurer_demo/`, `app/insurer_client.py` | Separate agent, signed HTTP | Eligibility, payment paths and claims; replies schema-checked, rejects go to a human |
 | E-consult | `services/agents/econsult/` | Deterministic packet | Referral / e-consult summary |
 | Closure Verifier | `services/agents/closure/` | Deterministic | Evidence gate before any closure |
@@ -183,7 +183,8 @@ All benchmark numbers are **simulated on synthetic data**, not real-world outcom
 │   └── labs-mock/               # synthetic Observation generator + failure config
 ├── mcp-servers/                 # fhir-mcp, directory-mcp, messaging-mcp (stubs)
 ├── data/templates/              # approved AR/EN message templates (YAML)
-├── data/kb/                     # reassurance knowledge base (Markdown)
+├── data/kb/                     # simulated reassurance KB, 40 docs EN/AR with review metadata (docs/rag.md)
+├── data/kb_eval/                # RAG eval set: retrieval hit rate + must-escalate questions
 ├── benchmark/                   # golden_cases/, run_bench.py, config/, reports/
 ├── tests/golden/                # golden case tests
 ├── tests/safety/                # guardrail tests

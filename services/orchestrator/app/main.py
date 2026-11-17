@@ -857,7 +857,11 @@ async def kb_list():
 
     return {
         "index_version": index_version(),
-        "docs": [{k: d[k] for k in ("id", "title", "language", "approved_by", "hash")} for d in list_docs()],
+        "docs": [
+            {k: d[k] for k in ("id", "title", "language", "topic", "clinical_review_status", "approved_by", "version",
+                               "last_reviewed", "hash")}
+            for d in list_docs()
+        ],
     }
 
 

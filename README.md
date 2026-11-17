@@ -17,12 +17,15 @@
 
 Start the API and web locally ([Quick start](#quick-start): `make api` and `make web`, or `.\scripts\dev-api.ps1` / `.\scripts\dev-web.ps1`), or open the Azure web URL from the latest **deploy** workflow run. No login. Guest reads are open. Board writes use the persona switcher (`X-Rabt-Persona`). **Reset demo** on `/board` restores the seed.
 
-1. **Patient card (AR)** — open Fatima’s result at `http://localhost:3000/patient/case-gc01-fatima`: “not a diagnosis” banner + teach-back.
-2. **Same card (EN)** — add `?lang=en`.
-3. **Board** — `/board`: switch to Dr Aisha, accept ownership / handle critical BP / request close with a second persona.
-4. **Admin KPIs** — `/admin`: false closures and critical recall on the synthetic seed.
-5. **Insurer agent** — `/insurer`: the A2A exchanges with the separate Demo Health Insurance agent (signed, schema-checked).
-6. **API** — OpenAPI docs at `http://localhost:8000/docs` (`/healthz`, `/demo`, `/cases/{id}`).
+**Wow path (pitch hero):** Ravi’s abnormal FIT → cashless network option → one-tap book → same case on the coordinator board.
+
+1. **FIT / cashless (EN)** — `http://localhost:3000/patient/case-gc05-fit?lang=en`: teach-back if needed → book the **cashless** network option.
+2. **Board** — `/board`: find Ravi’s case as Coordinator Sara / Dr Khan (persona switcher).
+3. **Patient card (AR)** — Fatima at `/patient/case-gc01-fatima`: “not a diagnosis” + RTL teach-back.
+4. **Critical / HITL** — board: critical BP ladder (**Advance +15m**) or two-person close with a second persona.
+5. **Admin KPIs** — `/admin`: false closures and critical recall on the synthetic seed (one proof number).
+6. **Insurer agent** — `/insurer`: A2A with Demo Health Insurance (signed, schema-checked).
+7. **API** — OpenAPI at `http://localhost:8000/docs` (`/healthz`, `/demo`, `/cases/{id}`).
 
 | Real in this demo | Mocked / optional / off |
 |---|---|
@@ -240,12 +243,14 @@ The API rebuilds a fresh demo database (`data/rabt.db`) on every start, so guest
 
 Open http://localhost:3000 (or the Azure web URL). Guest mode — no login. Writes need the board persona header (`X-Rabt-Persona`).
 
-1. **Fatima, patient (Arabic)** → patient card: RTL result with “not a diagnosis” → answer every teach-back question → book the cashless network option (or a pay-and-claim option to see the claim tracker).
-2. **Dr Aisha** → `/board`: accept ownership of seeded `case-gc03-owner` (state `AwaitingOwner`).
-3. **Coordinator Sara** → `/board`: critical BP in the escalation queue (SMS has no values). Use **Advance +15m** to move the ladder, then **Handle escalation**.
-4. **Evidence closure** → on a booked case: **Mark attended** (shows **Attended — outcome needed**) → **Record outcome** → closes with evidence.
-5. **Two-person close** → on a case without evidence: **Request close** as persona A → switch persona → Approve twice with distinct non-requester personas → `ClosedByHuman`.
-6. **KPIs** → `/admin`: false closures and critical recall on the synthetic seed.
+1. **Ravi, FIT (English) — wow** → `/patient/case-gc05-fit?lang=en`: teach-back → **cashless** option first → one-tap book → confirm case on `/board`.
+2. **Fatima, patient (Arabic)** → `/patient/case-gc01-fatima`: RTL “not a diagnosis” → teach-back → cashless or pay-and-claim (claim tracker).
+3. **Dr Aisha** → `/board`: accept ownership of seeded `case-gc03-owner` (`AwaitingOwner`).
+4. **Coordinator Sara** → `/board`: critical BP queue (SMS has no values). **Advance +15m**, then **Handle escalation** (log expert call outcome on CRITICAL first).
+5. **Evidence closure** → booked case: **Mark attended** → **Record outcome** → closes with evidence.
+6. **Two-person close** → no evidence: **Request close** as A → switch persona → two distinct non-requester approvers → `ClosedByHuman`.
+7. **KPIs / proof** → `/admin`: one number (false closures / critical recall) + human still in charge.
+8. **Path to pilot** → next ask: one Abu Dhabi screening programme + one insurer ([docs/pilot-plan.md](docs/pilot-plan.md)).
 
 API docs: http://localhost:8000/docs
 

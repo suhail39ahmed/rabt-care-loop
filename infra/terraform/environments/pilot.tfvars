@@ -17,7 +17,8 @@ location_overrides = {
 }
 # openai_secondary_location: leave unset. No second APAC region in the allowlist offers these models as regional Standard.
 
-enable_private_networking = true
+# Path B for demo: public endpoints, Entra-only (keys off). Path A needs VNet CIDR fix + ~US$45/mo. See #148.
+enable_private_networking = false
 
 openai_deployments = {
   chat-small  = { role = "small", model_name = "gpt-4.1-mini", model_version = "2025-04-14", sku_name = "Standard", capacity = 20 }

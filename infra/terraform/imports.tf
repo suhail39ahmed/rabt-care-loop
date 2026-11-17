@@ -126,12 +126,6 @@ import {
 }
 
 import {
-  for_each = local.do_import_foundry_gw
-  to       = azapi_resource.foundry_apim_gateway[0]
-  id       = "${local.foundry_acct_id}/projects/${var.foundry_project_name}/connections/${local.names.apim}"
-}
-
-import {
   for_each = var.import_existing ? { pilot = true } : {}
   to       = module.apim.azurerm_api_management_policy_fragment.traffic_inbound
   id       = "${local.apim_svc_id}/policyFragments/rabt-traffic-monitor-inbound"

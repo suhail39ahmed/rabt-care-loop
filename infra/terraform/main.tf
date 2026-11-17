@@ -171,6 +171,19 @@ module "content_safety" {
   tags                          = local.tags
 }
 
+module "language" {
+  source = "./modules/language"
+  count  = var.enable_language_pii ? 1 : 0
+
+  name                          = local.names.language
+  resource_group_name           = azurerm_resource_group.main.name
+  location                      = local.locations.language
+  local_auth_enabled            = !var.disable_local_auth
+  public_network_access_enabled = !local.private
+  network_default_action        = local.private ? "Deny" : "Allow"
+  tags                          = local.tags
+}
+
 module "redis" {
   source = "./modules/redis"
   count  = var.enable_semantic_cache ? 1 : 0
@@ -206,6 +219,9 @@ module "private_endpoints" {
     },
     var.enable_content_safety ? {
       contentsafety = { resource_id = module.content_safety[0].id, subresource = "account", dns_zone_id = module.network[0].private_dns_zone_ids["cognitive"] }
+    } : {},
+    var.enable_language_pii ? {
+      language = { resource_id = module.language[0].id, subresource = "account", dns_zone_id = module.network[0].private_dns_zone_ids["cognitive"] }
     } : {},
     var.enable_semantic_cache ? {
       redis = { resource_id = module.redis[0].id, subresource = "redisEnterprise", dns_zone_id = module.network[0].private_dns_zone_ids["redis"] }
@@ -247,6 +263,8 @@ module "apim" {
   search_calls_per_minute        = var.apim_search_calls_per_minute
   enable_content_safety          = var.enable_content_safety
   content_safety_endpoint        = var.enable_content_safety ? module.content_safety[0].endpoint : null
+  enable_language                = var.enable_language_pii
+  language_endpoint              = var.enable_language_pii ? module.language[0].endpoint : null
   enable_semantic_cache          = var.enable_semantic_cache
   redis                          = var.enable_semantic_cache ? { id = module.redis[0].id, hostname = module.redis[0].hostname, primary_access_key = module.redis[0].primary_access_key } : null
   semantic_cache_score_threshold = var.semantic_cache_score_threshold
@@ -282,6 +300,9 @@ module "rbac" {
     },
     var.enable_content_safety ? {
       "apim-content-safety" = { scope = module.content_safety[0].id, role = "Cognitive Services User", principal_id = module.apim.principal_id, principal_type = "ServicePrincipal" }
+    } : {},
+    var.enable_language_pii ? {
+      "apim-language" = { scope = module.language[0].id, role = "Cognitive Services User", principal_id = module.apim.principal_id, principal_type = "ServicePrincipal" }
     } : {},
     var.grant_deployer_data_roles ? {
       "deployer-kv-secrets"     = { scope = module.keyvault.id, role = "Key Vault Secrets Officer", principal_id = data.azurerm_client_config.current.object_id }
@@ -373,6 +394,9 @@ module "hosting" {
       AZURE_SEARCH_SEMANTIC_CONFIG      = var.search_semantic_ranker == "disabled" ? "" : "rabt-semantic"
       KB_BLOB_CONTAINER_URL             = local.kb_container_url
       CONTENT_SAFETY_ENDPOINT           = var.enable_content_safety ? module.apim.gateway_url : ""
+      LANGUAGE_PII_ENABLED              = tostring(var.enable_language_pii)
+      LANGUAGE_ENDPOINT                 = var.enable_language_pii ? module.apim.gateway_url : ""
+      LANGUAGE_PII_MIN_CONFIDENCE       = tostring(var.language_pii_min_confidence)
       GUEST_MODE                        = "true"
       RABT_DB                           = "/tmp/rabt.db"
       OTEL_SERVICE_NAME                 = "rabt-orchestrator"
@@ -430,7 +454,8 @@ module "diagnostics" {
       storage-account = { resource_id = module.storage.id, metric_category = "Transaction", logs = false }
       registry        = { resource_id = module.hosting.registry_id }
     },
-    var.enable_content_safety ? { contentsafety = { resource_id = module.content_safety[0].id } } : {}
+    var.enable_content_safety ? { contentsafety = { resource_id = module.content_safety[0].id } } : {},
+    var.enable_language_pii ? { language = { resource_id = module.language[0].id } } : {}
   )
 }
 

@@ -2,7 +2,9 @@
 
 Order of operations for every call (#68, #99, #101, #104, #105):
   1. AI_ENABLED kill switch: off -> return None (callers use approved templates).
-  2. PII scrub on the system and user text (agents.common.pii), always.
+  2. PII scrub on the system, user and source text: regex always, then Azure AI Language PII when
+     LANGUAGE_PII_ENABLED (bare names, addresses). If Language is on and fails, the call is skipped
+     (fail closed) and callers use approved templates.
   3. Prompt Shields on untrusted input (patient text, documents), when configured.
   4. Router picks the deployment, max_tokens and input cap; input is compressed to the cap.
   5. Daily token budget check.
@@ -20,8 +22,9 @@ from typing import Any
 import httpx
 
 from agents.common import ai_metrics
+from agents.common.language_pii import LanguagePiiError
 from agents.common.llm_router import compress, estimate_tokens, route
-from agents.common.pii import scrub
+from agents.common.pii import scrub_layered
 
 log = logging.getLogger("rabt.llm")
 
@@ -110,6 +113,7 @@ async def chat_completion(
     cache_scope: str | None = None,
     documents: list[str] | None = None,
     prompt_ref: str | None = None,
+    language: str | None = None,
 ) -> str | None:
     """Return the model's text, or None when AI is off, blocked, over budget or the call failed."""
     if not ai_enabled():
@@ -119,8 +123,14 @@ async def chat_completion(
     if not llm_configured():
         return None
 
-    s_sys, s_user = scrub(system, pii_tokens), scrub(user, pii_tokens)
-    docs = [scrub(d, pii_tokens).text for d in documents or []]
+    try:
+        # Regex first, then Azure AI Language PII when enabled. A Language failure blocks the call.
+        s_sys, s_user, *s_docs = scrub_layered([system, user, *(documents or [])], pii_tokens, language)
+    except LanguagePiiError:
+        ai_metrics.incr("pii_fail_closed", task=task)
+        log.warning("pii_fail_closed task=%s: Language PII unavailable, model call skipped", task)
+        return None
+    docs = [d.text for d in s_docs]
     redacted = s_sys.counts + s_user.counts
     if redacted:
         ai_metrics.incr("pii_redactions", sum(redacted.values()), task=task, types=",".join(sorted(redacted)))
@@ -203,7 +213,11 @@ async def embed(texts: list[str]) -> list[list[float]] | None:
     provider = _provider()
     url = build_chat_url(provider, _base(), model, op="embeddings")
     headers = auth_headers(provider) | {"x-rabt-task": "embed"}
-    clean = [scrub(t).text[:8000] for t in texts]
+    try:
+        clean = [r.text[:8000] for r in scrub_layered(texts)]
+    except LanguagePiiError:
+        ai_metrics.incr("pii_fail_closed", task="embed")
+        return None
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             r = await client.post(url, headers=headers, json={"input": clean, "model": model})

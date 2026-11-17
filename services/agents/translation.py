@@ -13,7 +13,8 @@ import re
 from typing import Any, Literal
 
 from agents.common.guardrails import content_safe
-from agents.common.pii import pseudonymize, restore
+from agents.common.language_pii import LanguagePiiError
+from agents.common.pii import pseudonymize_layered, restore
 
 Lang = Literal["en", "ar"]
 _AR = re.compile(r"[\u0600-\u06FF]")
@@ -74,7 +75,11 @@ async def translate(text: str, target: Lang | None = None) -> dict[str, Any]:
     from agents.common.llm_client import chat_completion
     from agents.common.prompts import get_prompt
 
-    pseudo = pseudonymize(text)
+    try:
+        pseudo = pseudonymize_layered(text, language=source)  # regex + Language PII; names restored locally
+    except LanguagePiiError:
+        return {**base, "text": None, "method": "unavailable", "label": None,
+                "note": "PII check unavailable, so nothing was sent for translation. Use an interpreter or the approved phrases."}
     prompt = get_prompt("translate")
     out = await chat_completion(
         system=f"{prompt.system}\nTranslate to: {'Arabic' if target == 'ar' else 'English'}.",
@@ -83,6 +88,7 @@ async def translate(text: str, target: Lang | None = None) -> dict[str, Any]:
         temperature=prompt.temperature if prompt.temperature is not None else 0,
         max_tokens=prompt.max_tokens,
         prompt_ref=prompt.ref,
+        language=source,
     )
     if out and _plausible(pseudo.text, out, target, list(pseudo.mapping)):
         return {**base, "text": restore(out.strip(), pseudo.mapping), "method": "ai", "label": "AI-translated", "prompt": prompt.ref}

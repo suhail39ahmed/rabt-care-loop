@@ -22,6 +22,7 @@ locals {
     primary        = var.location
     openai         = lookup(var.location_overrides, "openai", var.location)
     content_safety = lookup(var.location_overrides, "content_safety", var.location)
+    language       = lookup(var.location_overrides, "language", var.location)
     apim           = lookup(var.location_overrides, "apim", var.location)
     redis          = lookup(var.location_overrides, "redis", var.location)
     search         = lookup(var.location_overrides, "search", var.location)
@@ -44,6 +45,7 @@ locals {
     search         = "srch-${local.base}${local.sfx}"
     content_safety = "cs-${var.workload}-${var.environment}-${lookup(local.region_codes, local.locations.content_safety, "x")}${local.sfx}"
     redis          = "redis-${local.base}${local.sfx}"
+    language       = "lang-${local.base}${local.sfx}"
     log_analytics  = "log-${local.base}"
     app_insights   = "appi-${local.base}"
     action_group   = "ag-${local.base}"
@@ -85,7 +87,7 @@ locals {
       vault  = "privatelink.vaultcore.azure.net"
       blob   = "privatelink.blob.core.windows.net"
     },
-    var.enable_content_safety ? { cognitive = "privatelink.cognitiveservices.azure.com" } : {},
+    var.enable_content_safety || var.enable_language_pii ? { cognitive = "privatelink.cognitiveservices.azure.com" } : {},
     var.enable_semantic_cache ? { redis = "privatelink.redis.azure.net" } : {}
   )
 

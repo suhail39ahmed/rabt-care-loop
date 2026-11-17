@@ -13,6 +13,11 @@ What is scrubbed (in this order):
 `scrub()` is one-way (placeholders such as [PHONE]). `pseudonymize()` swaps the same items for
 numbered placeholders and returns the mapping, so a translation can be restored locally after the
 model call without the model ever seeing the real values.
+
+Layered mode (`scrub_layered`, `pseudonymize_layered`): the regex pass above, then Azure AI Language PII
+(agents.common.language_pii) on the already-scrubbed text when LANGUAGE_PII_ENABLED is on. That catches
+bare names and other free-text identifiers the patterns miss. If the service fails it raises
+LanguagePiiError, and the caller must not send the text to a model (fail closed).
 """
 
 from __future__ import annotations
@@ -113,3 +118,46 @@ def restore(text: str, mapping: dict[str, str]) -> str:
 def scrub_pii_uae(text: str, tokens: dict[str, str] | None = None) -> str:
     """Backwards-compatible helper."""
     return scrub(text, tokens).text
+
+
+def _apply_entities(res: ScrubResult, entities: list[dict], numbered: bool) -> ScrubResult:
+    """Replace Language-detected entities (longest first) in an already regex-scrubbed result."""
+    out = res.text
+    seq = Counter(k.split("_")[0].strip("[") for k in res.mapping)
+    for ent in sorted(entities, key=lambda e: -len(e["text"])):
+        value, kind = ent["text"], ent["kind"]
+        if value not in out:
+            continue
+        if numbered:
+            ph = next((p for p, real in res.mapping.items() if real == value), None)
+            if ph is None:
+                seq[kind] += 1
+                ph = f"[{kind}_{seq[kind]}]"
+                res.mapping[ph] = value
+        else:
+            ph = f"[{kind}]"
+        res.counts[kind] += out.count(value)
+        res.counts["LANGUAGE"] += out.count(value)
+        out = out.replace(value, ph)
+    res.text = out
+    return res
+
+
+def _layered(texts: list[str], tokens: dict[str, str] | None, language: str | None, numbered: bool) -> list[ScrubResult]:
+    from agents.common import language_pii
+
+    results = [_run(t, tokens, numbered=numbered) for t in texts]
+    if not language_pii.enabled():
+        return results
+    found = language_pii.detect([r.text for r in results], language)  # raises LanguagePiiError
+    return [_apply_entities(r, ents, numbered) for r, ents in zip(results, found, strict=True)]
+
+
+def scrub_layered(texts: list[str], tokens: dict[str, str] | None = None, language: str | None = None) -> list[ScrubResult]:
+    """Regex scrub, then Language PII (when enabled). Raises LanguagePiiError: fail closed."""
+    return _layered(texts, tokens, language, numbered=False)
+
+
+def pseudonymize_layered(text: str, tokens: dict[str, str] | None = None, language: str | None = None) -> ScrubResult:
+    """Reversible layered scrub (numbered placeholders + local mapping). Raises LanguagePiiError."""
+    return _layered([text], tokens, language, numbered=True)[0]

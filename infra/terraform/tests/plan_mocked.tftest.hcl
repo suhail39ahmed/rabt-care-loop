@@ -56,7 +56,7 @@ run "defaults_private" {
   command = plan
 
   assert {
-    condition     = toset(output.security_summary.private_endpoints) == toset(["blob", "contentsafety", "openai-primary", "search", "vault"])
+    condition     = toset(output.security_summary.private_endpoints) == toset(["blob", "contentsafety", "language", "openai-primary", "search", "vault"])
     error_message = "Expected private endpoints for AOAI, Search, KV, Storage and Content Safety."
   }
   assert {

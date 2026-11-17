@@ -38,7 +38,7 @@ locals {
     storage_kb     = "st${local.flat}kb"
     search         = "srch-${local.base}${local.sfx}"
     foundry        = "aif-${var.workload}-${var.environment}-${lookup(local.region_codes, local.locations.foundry, "x")}${local.sfx}"
-    redis          = "redis-${local.base}${local.sfx}"
+    redis          = "redis-${var.workload}-${var.environment}-${lookup(local.region_codes, local.locations.redis, "x")}${local.sfx}"
     log_analytics  = "log-${local.base}"
     app_insights   = "appi-${local.base}"
     action_group   = "ag-${local.base}"

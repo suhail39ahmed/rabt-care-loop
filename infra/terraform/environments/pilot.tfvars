@@ -11,6 +11,8 @@ name_suffix = ""              # set e.g. "01" only if a global name (APIM, Key V
 # gpt-4.1-mini / gpt-4o / text-embedding-3-small and Content Safety need Australia East.
 location_overrides = {
   foundry = "australiaeast"
+  # SEA has no Balanced_B0 capacity right now; co-locate cache with Foundry.
+  redis = "australiaeast"
 }
 
 # Path B for demo: public endpoints, Entra-only (keys off). Path A needs VNet CIDR fix + ~US$45/mo. See #148.

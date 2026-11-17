@@ -14,7 +14,11 @@ locals {
   do_import    = var.import_existing ? { pilot = true } : {}
   do_import_vn = var.import_existing && local.private ? { pilot = true } : {}
   # Insurer app is optional (count); only import when that feature is on.
-  do_import_insurer = var.import_existing && var.enable_insurer_demo ? { pilot = true } : {}
+  do_import_insurer     = var.import_existing && var.enable_insurer_demo ? { pilot = true } : {}
+  do_import_foundry_gw  = var.import_existing && var.foundry_project_name != null && local.apim_subscription_required ? { pilot = true } : {}
+  do_import_insurer_api = var.import_existing && var.enable_insurer_demo ? { pilot = true } : {}
+  apim_svc_id           = "${local.import_rg_id}/providers/Microsoft.ApiManagement/service/${local.names.apim}"
+  foundry_acct_id       = "${local.import_rg_id}/providers/Microsoft.CognitiveServices/accounts/${local.names.foundry}"
 }
 
 import {
@@ -112,4 +116,53 @@ import {
   for_each = var.import_existing ? toset(["safety-blocks", "llm-errors", "budget-refusals", "token-burn"]) : toset([])
   to       = module.monitoring.azurerm_monitor_scheduled_query_rules_alert_v2.ai[each.key]
   id       = "${local.import_rg_id}/providers/Microsoft.Insights/scheduledQueryRules/alert-${local.names.app_insights}-${each.key}"
+}
+
+# Foundry AI gateway connections created before state caught up (name = APIM instance).
+import {
+  for_each = local.do_import_foundry_gw
+  to       = azapi_resource.foundry_apim_gateway_account[0]
+  id       = "${local.foundry_acct_id}/connections/${local.names.apim}"
+}
+
+import {
+  for_each = local.do_import_foundry_gw
+  to       = azapi_resource.foundry_apim_gateway[0]
+  id       = "${local.foundry_acct_id}/projects/${var.foundry_project_name}/connections/${local.names.apim}"
+}
+
+import {
+  for_each = var.import_existing ? { pilot = true } : {}
+  to       = module.apim.azurerm_api_management_policy_fragment.traffic_inbound
+  id       = "${local.apim_svc_id}/policyFragments/rabt-traffic-monitor-inbound"
+}
+
+import {
+  for_each = var.import_existing ? { pilot = true } : {}
+  to       = module.apim.azurerm_api_management_policy_fragment.traffic_outbound
+  id       = "${local.apim_svc_id}/policyFragments/rabt-traffic-monitor-outbound"
+}
+
+import {
+  for_each = local.do_import_insurer_api
+  to       = azurerm_api_management_backend.insurer_a2a[0]
+  id       = "${local.apim_svc_id}/backends/insurer-a2a"
+}
+
+import {
+  for_each = local.do_import_insurer_api
+  to       = azurerm_api_management_api.insurer_a2a[0]
+  id       = "${local.apim_svc_id}/apis/insurer-a2a"
+}
+
+import {
+  for_each = var.import_existing && var.enable_insurer_demo ? toset(["agent_card", "healthz", "eligibility", "payment_options", "claims"]) : toset([])
+  to       = azurerm_api_management_api_operation.insurer_a2a[each.key]
+  id       = "${local.apim_svc_id}/apis/insurer-a2a/operations/${replace(each.key, "_", "-")}"
+}
+
+import {
+  for_each = local.do_import_insurer_api
+  to       = azurerm_api_management_api_policy.insurer_a2a[0]
+  id       = "${local.apim_svc_id}/apis/insurer-a2a"
 }

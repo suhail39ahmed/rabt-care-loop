@@ -69,8 +69,10 @@ output "foundry_app_insights_connection_id" {
 }
 
 output "foundry_apim_gateway_connection_id" {
-  description = "Foundry project ↔ APIM AI gateway connection ID (apim-rabt-pilot-sea)."
-  value       = try(azapi_resource.foundry_apim_gateway[0].id, null)
+  description = "Foundry project ↔ APIM AI gateway connection ID (shared from account; not TF-managed)."
+  value = var.foundry_project_name != null && local.apim_subscription_required ? (
+    "${module.foundry.project_id}/connections/${module.apim.name}"
+  ) : null
 }
 
 output "foundry_apim_gateway_account_connection_id" {

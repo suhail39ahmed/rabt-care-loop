@@ -277,25 +277,13 @@ resource "azapi_resource" "foundry_apim_gateway_account" {
   schema_validation_enabled = false
 }
 
-# Project connection is owned by the AML workspace after account-level isSharedToAll;
-# keep it in state for the output ID but never update/destroy (AML rejects Cognitive PUT).
-resource "azapi_resource" "foundry_apim_gateway" {
-  count     = var.foundry_project_name != null && local.apim_subscription_required ? 1 : 0
-  type      = "Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview"
-  name      = module.apim.name
-  parent_id = module.foundry.project_id
-  body = {
-    properties = {
-      category = "ApiManagement"
-      target   = "${trimsuffix(module.apim.gateway_url, "/")}/openai"
-      authType = "ApiKey"
-    }
-  }
-  schema_validation_enabled = false
-  depends_on                = [azapi_resource.foundry_apim_gateway_account]
+# Project connection is created/owned by the AML workspace when the account connection
+# has isSharedToAll=true. Do not manage it in Terraform (Cognitive PUT is rejected).
+removed {
+  from = azapi_resource.foundry_apim_gateway
 
   lifecycle {
-    ignore_changes = [body]
+    destroy = false
   }
 }
 

@@ -33,3 +33,6 @@ docs/learn-agents.md
 
 # Local KB suggestions written by the running demo (reviewed in the app, never committed)
 data/kb/_pending/*.md
+
+# Offline KB index (scripts/rag_ingest.py --offline)
+.kb-index/

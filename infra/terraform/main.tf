@@ -390,7 +390,11 @@ module "hosting" {
     identity_principal_id = module.identity.principal_ids["ingest"]
     identity_client_id    = module.identity.client_ids["ingest"]
     cron                  = var.kb_ingest_cron
+    # Embeddings go through the APIM AI gateway (metrics, quotas, failover); direct Azure OpenAI is the fallback.
+    secret_env = local.apim_subscription_required ? { LLM_API_KEY = "llm-api-key" } : {}
     env = {
+      LLM_PROVIDER                      = "azure"
+      LLM_BASE_URL                      = module.apim.gateway_url
       KB_BLOB_CONTAINER_URL             = local.kb_container_url
       AZURE_SEARCH_SERVICE_ENDPOINT     = "https://${local.names.search}.search.windows.net"
       AZURE_SEARCH_INDEX                = var.search_index_name

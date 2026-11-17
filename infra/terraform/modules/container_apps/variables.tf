@@ -117,6 +117,7 @@ variable "ingest_job" {
     identity_client_id    = string
     cron                  = optional(string, "15 * * * *")
     env                   = optional(map(string), {})
+    secret_env            = optional(map(string), {}) # ENV_NAME => key of var.secrets
   })
   default = null
 }

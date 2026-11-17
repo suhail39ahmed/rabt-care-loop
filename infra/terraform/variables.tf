@@ -237,7 +237,7 @@ variable "search_partition_count" {
 variable "search_index_name" {
   description = "Index name used by the KB ingestion script and Rabt (AZURE_SEARCH_INDEX)."
   type        = string
-  default     = "rabt-kb"
+  default     = "rabt-kb-v2" # schema version suffix; a schema change means a new index (scripts/rag_ingest.py)
 }
 
 # ---------------------------------------------------------------------------

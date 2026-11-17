@@ -1,9 +1,10 @@
 """Approved knowledge base + the clinician-approved learning loop (#96).
 
-Approved docs live in KB_DIR (default data/kb/*.md). Suggestions (written by coordinators, or opened
+KB docs live in KB_DIR (default data/kb/*.md) with a YAML front matter (see agents.rag.chunking); only
+`clinical_review_status: approved` docs are retrievable. Suggestions (written by coordinators, or opened
 automatically when a patient question finds no approved answer) wait in KB_DIR/_pending as markdown
-with a small YAML header. Only a physician or supervisor can approve; approval writes the doc with an
-`approved_by` stamp, bumps the index version (which invalidates cached answers) and, in Azure, uploads
+with a small YAML header. Only a physician or supervisor can approve; approval writes the doc with
+front matter (`clinical_review_status: approved`, `reviewer`, `last_reviewed`), bumps the index version (which invalidates cached answers) and, in Azure, uploads
 it to the KB blob container where the ingestion job indexes it into AI Search.
 """
 
@@ -19,7 +20,7 @@ from typing import Any
 import httpx
 import yaml
 
-from agents.rag.chunking import content_hash, detect_language, title_of
+from agents.rag.chunking import DEMO_SOURCE, content_hash, detect_language, parse_doc, split_front_matter
 
 log = logging.getLogger("rabt.kb")
 
@@ -39,20 +40,17 @@ def slugify(text: str) -> str:
     return s[:60] or f"doc-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
 
 
-def list_docs() -> list[dict[str, Any]]:
+def list_docs(*, include_drafts: bool = True) -> list[dict[str, Any]]:
     out = []
     for path in sorted(kb_dir().glob("*.md")):
         text = path.read_text(encoding="utf-8")
-        m = re.search(r"approved_by:\s*([^\s]+)", text)
+        doc = parse_doc(text, path.stem)
+        if not include_drafts and not doc["approved"]:
+            continue
         out.append(
-            {
-                "id": path.stem,
-                "title": title_of(text, path.stem),
-                "language": detect_language(text),
-                "approved_by": m.group(1) if m else "seed",
-                "hash": content_hash(text),
-                "text": text,
-            }
+            {k: v for k, v in doc.items() if k != "body"}
+            | {"id": path.stem, "approved_by": doc["reviewer"] if doc["approved"] else None,
+               "hash": content_hash(text), "text": text}
         )
     return out
 
@@ -62,11 +60,7 @@ def index_version() -> str:
 
 
 def _split_front(text: str) -> tuple[dict[str, Any], str]:
-    if text.startswith("---\n"):
-        end = text.find("\n---\n", 4)
-        if end != -1:
-            return yaml.safe_load(text[4:end]) or {}, text[end + 5 :]
-    return {}, text
+    return split_front_matter(text)
 
 
 def suggest(*, title: str, content: str, language: str | None, suggested_by: str, reason: str = "",
@@ -104,8 +98,23 @@ def approve(sid: str, reviewer: str) -> dict[str, Any]:
     if not src.exists():
         raise FileNotFoundError(sid)
     meta, body = _split_front(src.read_text(encoding="utf-8"))
-    stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%MZ")
-    text = f"<!-- approved_by: {reviewer} at {stamp}; suggested_by: {meta.get('suggested_by', 'n/a')} -->\n{body.strip()}\n"
+    now = datetime.now(UTC)
+    stamp = now.strftime("%Y-%m-%dT%H:%MZ")
+    front = {
+        "id": src.stem,
+        "title": meta.get("title") or src.stem,
+        "language": meta.get("language") or detect_language(body),
+        "topic": meta.get("topic") or "general",
+        "audience": "patient",
+        "clinical_review_status": "approved",
+        "reviewer": reviewer,
+        "version": 1,
+        "last_reviewed": now.date().isoformat(),
+        "source": DEMO_SOURCE,
+        "suggested_by": meta.get("suggested_by", "n/a"),
+        "approved_at": stamp,
+    }
+    text = "---\n" + yaml.safe_dump(front, allow_unicode=True, sort_keys=False) + "---\n" + body.strip() + "\n"
     dst = kb_dir() / f"{src.stem}.md"
     dst.write_text(text, encoding="utf-8")
     src.unlink()

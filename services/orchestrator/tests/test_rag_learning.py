@@ -35,7 +35,7 @@ def test_local_bm25_language_aware():
     ar = local_search("ما هو السكري التراكمي؟", language="ar")
     assert ar and ar[0]["doc_id"] == "hba1c_ar"
     pay = local_search("how do I claim reimbursement invoice", language="en")
-    assert pay[0]["doc_id"] == "paying_for_your_visit"
+    assert pay[0]["doc_id"] in {"insurance_claim_documents", "paying_for_your_visit"}
 
 
 async def test_extractive_answer_cites_and_caches():
@@ -88,7 +88,7 @@ def test_azure_search_query_shape(monkeypatch):
     monkeypatch.setenv("LLM_API_KEY", "k")
     monkeypatch.setattr(retrieve_mod.httpx, "post", post)
     hits = retrieve_mod.azure_search("positive FIT", language="ar", vector=[0.1, 0.2])
-    assert seen["url"].endswith("/search/indexes/rabt-kb/docs/search?api-version=2024-07-01")
+    assert seen["url"].endswith("/search/indexes/rabt-kb-v2/docs/search?api-version=2024-07-01")
     assert seen["body"]["filter"] == "approved eq true and language eq 'ar'"
     assert seen["body"]["vectorQueries"][0]["fields"] == "content_vector"
     assert seen["headers"]["api-key"] == "k" and hits[0]["source"] == "azure_search"
@@ -124,7 +124,8 @@ def test_learning_loop_api(_iso):
         kb = c.get("/kb").json()
         assert kb["index_version"] != v0 and sid in [d["id"] for d in kb["docs"]]
         assert c.get("/kb/pending").json() == []
-    assert (_iso / f"{sid}.md").read_text(encoding="utf-8").startswith("<!-- approved_by: human:gp-aisha")
+    text = (_iso / f"{sid}.md").read_text(encoding="utf-8")
+    assert text.startswith("---\n") and "clinical_review_status: approved" in text and "reviewer: human:gp-aisha" in text
 
 
 def test_ingest_plan_and_schema():

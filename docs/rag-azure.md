@@ -4,12 +4,12 @@ Patients can ask questions on their case page (`POST /cases/{id}/reassure`). Ans
 
 ## Answer pipeline (`services/agents/rag/answer.py`)
 
-1. **Crisis language** (deterministic lexicon): urgent-help text, a human hand-off and a `HumanCallback` when the patient was notified.
+1. **Crisis language** (deterministic lexicon): urgent-help text with 998 / 999, a human hand-off and a `HumanCallback` when the patient was notified. Personal diagnosis or medication questions get a clinician callback instead of a KB answer.
 2. **Injection deny-list**: refuse and hand off. Prompt Shields also runs inside the LLM client.
 3. **App cache** (`agents/common/semantic_cache.py`): scoped by language and KB index version. The question is PII-scrubbed before it is used as a key. Matching is cosine ≥ 0.92 on embeddings, or token overlap ≥ 0.85 without them.
 4. **Retrieve** (`agents/rag/retrieve.py`):
-   - **Azure:** AI Search through the APIM `/search` API (read-only, KB index only). Hybrid keyword + vector query (question embedded through the gateway), filtered by `approved eq true and language eq '<en|ar>'`, with the semantic ranker (`rabt-semantic`). Falls back to local search if the call fails.
-   - **Local:** BM25 over chunks of `data/kb/*.md` in the patient's language.
+   - **Azure:** AI Search through the APIM `/search` API (read-only, KB index only). Hybrid keyword + vector query (question embedded through the gateway), filtered by `approved eq true and language eq '<en|ar>'` (plus optional topic / audience), with the semantic ranker (`rabt-semantic`). Falls back to local search if the call fails.
+   - **Local:** BM25 over chunks of approved `data/kb/*.md` docs in the patient's language (light Arabic normalisation).
 5. **No hit**: "ask your care team", plus a `kb_gap` item in the coordinator queue (the question is PII-scrubbed).
 6. **AI on**: the strong model answers from the numbered sources (prompt `rag_answer`), through the APIM semantic cache (scope = language + index version). The answer is kept only if:
    - it cites a source that exists;
@@ -43,13 +43,20 @@ ingestion job (hourly / on deploy / on demand) ─► AI Search index
 
 ## Ingestion (`scripts/rag_ingest.py`)
 
-- Creates or updates the index: keyword fields, a `content_vector` field (1536 dimensions, HNSW), the `rabt-semantic` configuration, and `language` / `approved` / `doc_hash` filters.
-- Chunks the markdown and skips docs whose hash is already indexed.
-- Embeds new chunks with `text-embedding-3-small`, uploads them and deletes stale chunks.
-- Auth is Entra ID only (`DefaultAzureCredential`).
+The full pipeline (front matter, chunking, idempotency, offline mode, evaluation) is described in [rag.md](rag.md). In short:
+
+- Creates or updates the versioned index `rabt-kb-v2`:
+  - keyword fields;
+  - a `content_vector` field (1536 dimensions, HNSW);
+  - the `rabt-semantic` configuration;
+  - metadata filters (`language`, `topic`, `audience`, `clinical_review_status`, `approved`, `doc_hash`).
+- Indexes approved docs only.
+- Re-embeds only docs whose hash changed. Deletes the chunks of removed, changed or demoted docs.
+- Embeddings go through the APIM gateway (`LLM_BASE_URL`, subscription key from the `llm-api-key` secret), with direct Azure OpenAI over Entra ID as the fallback. Search writes use Entra ID.
 
 ```bash
 python scripts/rag_ingest.py                     # dry run: plan only, no Azure calls
+python scripts/rag_ingest.py --offline           # local JSON index, no Azure
 python scripts/rag_ingest.py --apply             # from your machine (az login; needs your IP in deployer_ip_allowlist when private)
 az containerapp job start -n caj-rabt-ingest-pilot -g rg-rabt-pilot-sea   # in Azure (ingestion managed identity)
 ```

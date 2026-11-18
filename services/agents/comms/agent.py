@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,17 @@ def render_template(tpl: dict[str, Any], lang: str, vars: dict[str, str]) -> str
     for k, v in vars.items():
         text = text.replace("{" + k + "}", v)
     return text
+
+
+# The patient's name never goes to the model: the template is rendered with this placeholder and the
+# name is put back locally afterwards. The PII scrubbers (regex + Language PII) emit the same shapes.
+NAME_PLACEHOLDER = "[NAME]"
+_NAME_SLOT = re.compile(r"\[(?:NAME|PERSON|Person)(?:_\d+)?\]")
+
+
+def fill_name(text: str, name: str) -> str:
+    """Replace any name placeholder left in a drafted message with the patient's display name."""
+    return _NAME_SLOT.sub(lambda _m: name, text or "")
 
 
 def teachback_questions(tpl: dict[str, Any], lang: str) -> list[dict[str, Any]]:
@@ -91,15 +103,14 @@ async def run(req: dict[str, Any]) -> dict[str, Any]:
         "next_step": inputs.get("next_step", "book a follow-up visit"),
         "urgency": inputs.get("urgency", "URGENT"),
     }
-    import re
-
-    base = render_template(tpl, lang, vars)
+    base = render_template(tpl, lang, {**vars, "first_name_token": NAME_PLACEHOLDER})
     pii_tokens = inputs.get("pii_tokens") or {}
     # Only numbers present in the approved template may appear in LLM output
     allowed_nums = re.findall(r"\d+(?:\.\d+)?", base)
     text, used_llm = await draft_message(
         base, lang, pii_tokens=pii_tokens, allowed_numbers=allowed_nums
     )
+    text = fill_name(text, vars["first_name_token"])
     qs = teachback_questions(tpl, lang)
 
     return {

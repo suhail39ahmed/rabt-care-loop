@@ -8,7 +8,7 @@ export const LATIN = ["tl"];
 
 /** Words allowed in any locale: product name, lab codes, units, people and place names from the synthetic seed. */
 const ALLOWED =
-  /^(Rabt|HbA|HbA1c|FIT|AED|HMAC|HTTPS|FHIR|APIM|SMS|PDF|LDL|eGFR|mmHg|Sehatna|WhatsApp|Azure|HITL|DoH|KPIs?|LLM|A2A|Fatima|Ravi|Omar|Saeed|Aisha|Sara|Filipino|English)$/i;
+  /^(Rabt|HbA|HbA1c|FIT|AED|HMAC|HTTPS|FHIR|APIM|SMS|PDF|LDL|eGFR|mmHg|Sehatna|WhatsApp|Azure|HITL|DoH|KPIs?|LLM|A2A|Fatima|Ravi|Omar|Saeed|Aisha|Sara|Mariam|Joel|Khan|Filipino|English)$/i;
 
 /**
  * Visible UI text that still contains English words in a non-English locale. Server records

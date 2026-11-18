@@ -77,6 +77,51 @@ def obs_cervical(patient_id: str, obs_id: str = "obs-cerv-1") -> dict[str, Any]:
     }
 
 
+async def _book_seeded(ledger: Ledger, coordinator: Coordinator, db, case_id: str) -> bool:
+    """Teach-back passed, then book the top option (pre-auth cleared). False if an insurer scenario blocks it."""
+    case = await ledger.get_case(db, case_id)
+    tb = []
+    for m in reversed(case["messages"]):
+        if m.get("teachback"):
+            tb = [q["correct"] for q in m["teachback"]]
+            break
+    if tb:
+        await coordinator.submit_teachback(db, case_id, tb)
+    case = await ledger.get_case(db, case_id)
+    opts = case.get("options") or []
+    if not opts:
+        return False
+    evidence = dict(case.get("evidence") or {})
+    cov = dict(evidence.get("coverage") or {})
+    if cov.get("preauth_status") == "pending":
+        cov["preauth_status"] = "approved"
+        evidence["coverage"] = cov
+        await ledger.update_case(db, case_id, evidence=evidence)
+    try:
+        await coordinator.book(db, case_id, opts[0]["id"])
+        return True
+    except ValueError as exc:
+        await ledger.append_timeline(
+            db, case_id, kind="fact", label="Seed booking skipped", detail=str(exc)[:120], actor="system:seed"
+        )
+        return False
+
+
+async def _backdate(ledger: Ledger, db, case_id: str, seconds: float, **evidence_at: float) -> None:
+    """Shift a seeded case back in time so the follow-up tracker has something to flag right after reset."""
+    case = await ledger.get_case(db, case_id)
+    prov = [{**p, "at": p["at"] - seconds} if p.get("at") else p for p in case["provenance"]]
+    timeline = [{**t, "at": t["at"] - seconds} if t.get("at") else t for t in case["timeline"]]
+    evidence = dict(case.get("evidence") or {})
+    for k in ("attended_at", "appointment_at"):
+        if evidence.get(k):
+            evidence[k] = float(evidence[k]) - seconds
+    evidence.update(evidence_at)
+    await ledger.update_case(
+        db, case_id, provenance=prov, timeline=timeline, evidence=evidence, created_at=case["created_at"] - seconds
+    )
+
+
 async def seed_demo(ledger: Ledger, coordinator: Coordinator) -> dict[str, str]:
     """Create named demo cases for guest mode. Returns map of scenario → case_id."""
     db = await ledger.connect()
@@ -240,5 +285,48 @@ async def seed_demo(ledger: Ledger, coordinator: Coordinator) -> dict[str, str]:
     await coordinator.accept_ownership(db, c11["case_id"], "human:gp-aisha")
     await coordinator.notify_patient(db, c11["case_id"])
 
+    # GC-12 — follow-up tracker: visit attended three hours ago, outcome still missing (result delayed, overdue)
+    mariam = DEMO_PATIENTS["mariam"]
+    c12 = await coordinator.open_from_observation(
+        db,
+        {
+            "case_id": "case-gc12-result",
+            "idempotency_key": "demo/GC-12",
+            "patient_id": mariam["id"],
+            "patient": mariam,
+            "plan_id": mariam["plan_id"],
+            "observation": obs_hba1c(mariam["id"], 8.1, "obs-gc12"),
+        },
+    )
+    ids["gc12_result_delayed"] = c12["case_id"]
+    await coordinator.accept_ownership(db, c12["case_id"], "human:gp-khan")
+    await coordinator.notify_patient(db, c12["case_id"])
+    if await _book_seeded(ledger, coordinator, db, c12["case_id"]):
+        await coordinator.mark_attended(db, c12["case_id"], note="Repeat HbA1c drawn at the clinic")
+        await _backdate(ledger, db, c12["case_id"], 3 * 3600)
+
+    # GC-13 — follow-up tracker: booked visit was yesterday and nobody recorded attendance (missed visit)
+    joel = DEMO_PATIENTS["joel"]
+    c13 = await coordinator.open_from_observation(
+        db,
+        {
+            "case_id": "case-gc13-missed",
+            "idempotency_key": "demo/GC-13",
+            "patient_id": joel["id"],
+            "patient": joel,
+            "plan_id": joel["plan_id"],
+            "observation": obs_fit_positive(joel["id"], "obs-gc13"),
+        },
+    )
+    ids["gc13_missed_visit"] = c13["case_id"]
+    await coordinator.accept_ownership(db, c13["case_id"], "human:gp-aisha")
+    await coordinator.notify_patient(db, c13["case_id"])
+    if await _book_seeded(ledger, coordinator, db, c13["case_id"]):
+        from app import demo_clock
+
+        await _backdate(ledger, db, c13["case_id"], 3 * 86400, appointment_at=demo_clock.now() - 20 * 3600)
+
+    # Raise the follow-up flags (and their queue items) now rather than on the first background tick.
+    await coordinator.followup_sweep(db)
     await db.close()
     return ids

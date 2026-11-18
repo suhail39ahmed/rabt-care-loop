@@ -6,6 +6,17 @@
     <set-header name="api-key" exists-action="delete" />
     <authentication-managed-identity resource="https://cognitiveservices.azure.com" />
     <set-backend-service backend-id="${pool_backend_id}" />
+%{ if gateway_safety ~}
+    <!-- Layer 2 (gateway): Prompt Shields + harm categories on every prompt; the app already ran layer 1. Blocks with 403. -->
+    <llm-content-safety backend-id="${gateway_safety_id}" shield-prompt="true">
+      <categories output-type="EightSeverityLevels">
+        <category name="Hate" threshold="${gateway_safety_level}" />
+        <category name="Sexual" threshold="${gateway_safety_level}" />
+        <category name="SelfHarm" threshold="${gateway_safety_level}" />
+        <category name="Violence" threshold="${gateway_safety_level}" />
+      </categories>
+    </llm-content-safety>
+%{ endif ~}
     <!-- Request-rate cap (true TPM needs openai-typed API + llm-token-limit; tokens_per_minute reserved for that). -->
     <rate-limit-by-key calls="120" renewal-period="60" counter-key="@(context.Subscription?.Id ?? context.Request.IpAddress)" />
 %{ if semantic_cache ~}

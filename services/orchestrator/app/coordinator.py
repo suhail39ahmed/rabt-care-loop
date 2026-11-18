@@ -32,6 +32,27 @@ from app.state_machine import IllegalTransition, S, transition
 from app.tools import ToolScopeError, assert_tool_allowed, invoke_tool
 
 MAX_STEPS = 8
+ASSISTED_AGE = 60
+# Assisted (60+) patients get a human phone call at notification and twice the time to respond.
+ASSISTED_RESPONSE_SLA_FACTOR = 2
+
+
+def question_language(question: str, fallback: str, *, chosen: bool = False) -> str:
+    """Answer in the language the patient typed in (by script), otherwise the UI / case language.
+
+    `chosen=True` means the patient picked `fallback` in the app. For languages answered through the English
+    KB plus translation (hi, ur, ml, bn), Latin-script text is then answered in the chosen language. Arabic keeps
+    the script rule so English text is searched against the English KB."""
+    from agents.common.languages import KB_LANGS, LATIN, detect, normalize
+
+    fallback = normalize(fallback)
+    found = detect(question)
+    if found:
+        return found
+    letters = [ch for ch in question if ch.isalpha()]
+    if letters and fallback not in LATIN and not (chosen and fallback not in KB_LANGS):
+        return "en"  # Latin text typed while the case language is non-Latin
+    return fallback
 
 
 class Coordinator:
@@ -178,6 +199,10 @@ class Coordinator:
             }
             if patient.get("name_ar"):
                 evidence0["patient_display_name_ar"] = str(patient["name_ar"]).strip()
+            if isinstance(patient.get("age"), int):
+                evidence0["age"] = patient["age"]
+                # Senior / assisted path: easy mode suggested, phone call first, slower patient ladder.
+                evidence0["assisted"] = patient["age"] >= ASSISTED_AGE
             case_payload["evidence"] = evidence0
         case = await self.ledger.create_case(db, case_payload)
         case_id = case["case_id"]
@@ -380,6 +405,111 @@ class Coordinator:
             }
         )
         await self.ledger.update_case(db, case_id, messages=messages)
+        if (case.get("evidence") or {}).get("assisted"):
+            await self._assisted_outreach(db, case_id)
+        return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+
+    async def _assisted_outreach(self, db: aiosqlite.Connection, case_id: str) -> None:
+        """Senior / assisted path: a coordinator phone call is queued at notification (not after app silence),
+        reminders go by phone call and SMS, and the patient-response window is doubled."""
+        case = await self.ledger.get_case(db, case_id)
+        evidence = dict(case.get("evidence") or {})  # type: ignore[union-attr]
+        evidence["reminder_channels"] = ["call", "sms", "app"]
+        evidence["response_sla_factor"] = ASSISTED_RESPONSE_SLA_FACTOR
+        await self.ledger.update_case(db, case_id, evidence=evidence)
+        await hitl.enqueue(
+            db,
+            case_id,
+            "assisted_call",
+            "Senior / assisted: call the patient to explain the result and book",
+            urgency=case.get("urgency"),  # type: ignore[union-attr]
+            detail="Age 60+. Phone first, easy mode suggested, invite a family helper if the patient wants.",
+        )
+        await self.ledger.append_timeline(
+            db, case_id, kind="calculated", label="Assisted path: coordinator call queued",
+            detail="Senior / assisted (60+)", actor="agent:comms",
+        )
+
+    async def request_callback(self, db: aiosqlite.Connection, case_id: str, reason: str = "") -> dict[str, Any]:
+        """Patient taps 'call me instead' / 'talk to a person'."""
+        case = await self.ledger.get_case(db, case_id)
+        if not case:
+            raise CaseNotFound(case_id)
+        await hitl.enqueue(db, case_id, "callback_request", "Patient asked for a phone call",
+                           urgency=case.get("urgency"), detail=(reason or "")[:200])
+        evidence = dict(case.get("evidence") or {})
+        evidence["callback_requested"] = True
+        await self.ledger.update_case(db, case_id, evidence=evidence)
+        await self.ledger.append_timeline(db, case_id, kind="fact", label="Patient requested a phone call",
+                                          detail="", actor="patient:self")
+        return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+
+    async def set_preferences(self, db: aiosqlite.Connection, case_id: str, *, language: str | None = None,
+                              easy_mode: bool | None = None) -> dict[str, Any]:
+        """Patient profile preferences chosen in the app: display language and easy (assisted) mode."""
+        case = await self.ledger.get_case(db, case_id)
+        if not case:
+            raise CaseNotFound(case_id)
+        evidence = dict(case.get("evidence") or {})
+        prefs = dict(evidence.get("preferences") or {})
+        if language:
+            prefs["language"] = language
+        if easy_mode is not None:
+            prefs["easy_mode"] = bool(easy_mode)
+            if easy_mode and not evidence.get("assisted"):
+                evidence["assisted"] = True
+                evidence["assisted_reason"] = "patient_choice"
+        evidence["preferences"] = prefs
+        await self.ledger.update_case(db, case_id, evidence=evidence)
+        return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+
+    async def add_document(self, db: aiosqlite.Connection, case_id: str, *, filename: str, data: bytes,
+                           purpose: str = "claim", doc_id: str | None = None) -> dict[str, Any]:
+        """Patient upload (reimbursement document, lab report) through the document safety gate.
+        Quarantined files never reach a model, the index or the insurer; the coordinator board gets a flag."""
+        import time
+
+        from agents.docsafety.pipeline import check
+
+        case = await self.ledger.get_case(db, case_id)
+        if not case:
+            raise CaseNotFound(case_id)
+        verdict, _clean = check(data, filename, purpose=purpose)
+        evidence = dict(case.get("evidence") or {})
+        record = {"name": filename[-80:], "purpose": purpose, "doc_id": doc_id, "checked_at": time.time(),
+                  **verdict.public()}
+        evidence["documents"] = [*(evidence.get("documents") or []), record][-20:]
+        claim = evidence.get("claim")
+        if verdict.status == "accepted" and doc_id and isinstance(claim, dict):
+            for d in claim.get("documents") or []:
+                if d.get("id") == doc_id:
+                    d["provided"] = True
+                    d["checked"] = True
+        await self.ledger.update_case(db, case_id, evidence=evidence)
+        await self.ledger.append_timeline(
+            db, case_id, kind="fact",
+            label="Document checked" if verdict.status == "accepted" else "Document quarantined",
+            detail=", ".join(verdict.flags) or "clean", actor="system:docsafety",
+        )
+        if verdict.status != "accepted":
+            await hitl.enqueue(db, case_id, "document_quarantine", "Uploaded document held for review",
+                               urgency=case.get("urgency"), detail=", ".join(verdict.flags))
+        return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+
+    async def set_caregiver(self, db: aiosqlite.Connection, case_id: str, *, name: str, relation: str,
+                            phone_last4: str, consent: bool) -> dict[str, Any]:
+        """Family / caregiver proxy: only with the patient's explicit consent; we keep the last 4 digits only."""
+        case = await self.ledger.get_case(db, case_id)
+        if not case:
+            raise CaseNotFound(case_id)
+        if not consent:
+            raise ValueError("patient consent is required to add a family helper")
+        evidence = dict(case.get("evidence") or {})
+        evidence["caregiver"] = {"name": name[:40], "relation": relation[:20], "phone_last4": phone_last4[-4:],
+                                 "consent": True, "can": ["reminders", "help_book"]}
+        await self.ledger.update_case(db, case_id, evidence=evidence)
+        await self.ledger.append_timeline(db, case_id, kind="fact", label="Family helper added with consent",
+                                          detail=relation[:20], actor="patient:self")
         return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
 
     async def mark_unreachable(self, db: aiosqlite.Connection, case_id: str) -> dict[str, Any]:
@@ -523,6 +653,7 @@ class Coordinator:
         payment = await self._ask_insurer(db, case_id, "navigate", "payment-options", query) if options else {}
         evidence = dict(case.get("evidence") or {})
         evidence["coverage"] = coverage
+        evidence["coverage_provider_id"] = first
         evidence["payment_options"] = payment
         await self.ledger.update_case(db, case_id, options=options, evidence=evidence)
         await self.ledger.append_timeline(
@@ -562,6 +693,14 @@ class Coordinator:
             raise ValueError("preauth_pending — book blocked until insurer pre-auth clears")
         if coverage.get("reason_code") == "DENIED":
             raise ValueError("coverage_denied")
+        evidence0 = case.get("evidence") or {}
+        if (
+            coverage.get("reason_code") == "OUT_OF_NETWORK"
+            and option_id == evidence0.get("coverage_provider_id")
+            and not evidence0.get("self_pay_opt_in")
+        ):
+            raise ValueError("out_of_network_blocked — the insurer says this clinic is not covered on this plan")
+        verified = coverage.get("status") != "error"
         await self._apply(
             db, case_id, S(case["state"]), S.BOOKED, "patient:book", f"booked {option_id}", {"option": opt}
         )
@@ -569,6 +708,14 @@ class Coordinator:
         evidence["booked_option"] = option_id
         path = opt.get("payment") or {}
         evidence["payment_mode"] = path.get("mode", "cashless")
+        if not verified:
+            # Insurer reply missing or rejected (unsigned, tampered): never promise cashless; a person confirms.
+            evidence["payment_mode"] = "unverified"
+            await hitl.enqueue(db, case_id, "coverage_unverified", "Coverage not verified: confirm with the insurer",
+                               urgency=case.get("urgency"), detail=str(coverage.get("reason_code") or "")[:120])
+            await self.ledger.append_timeline(db, case_id, kind="calculated", label="Coverage not verified",
+                                              detail=str(coverage.get("reason_code") or "no reply"),
+                                              actor="agent:navigator")
         if path.get("mode") == "reimbursement":
             from agents.navigator.payment import new_claim
 
@@ -656,6 +803,27 @@ class Coordinator:
             db, case_id, S.ATTENDED, S.CLOSURE_PENDING, "system:flow", "closure pending", {}
         )
         return await self.try_close(db, case_id)
+
+    async def mark_no_show(
+        self, db: aiosqlite.Connection, case_id: str, *, actor: str = "human:clinic", note: str = ""
+    ) -> dict[str, Any]:
+        """Clinic reports a missed appointment. The loop stays open: the case goes back to Referred so the
+        patient can rebook, and the coordinator gets a follow-up item. A second no-show also asks for a call."""
+        case = await self.ledger.get_case(db, case_id)
+        if not case:
+            raise CaseNotFound(case_id)
+        await self._apply(db, case_id, S(case["state"]), S.NO_SHOW, actor, "did not attend", {"note": note[:200]})
+        evidence = dict(case.get("evidence") or {})
+        evidence["no_shows"] = int(evidence.get("no_shows") or 0) + 1
+        evidence.pop("booked_option", None)
+        await self.ledger.update_case(db, case_id, evidence=evidence)
+        await hitl.enqueue(db, case_id, "no_show_followup", "Missed appointment: help the patient rebook",
+                           urgency=case.get("urgency"), detail=(note or "")[:200])
+        if evidence["no_shows"] >= 2 or evidence.get("assisted"):
+            await hitl.enqueue(db, case_id, "callback_request", "Repeated no-show or assisted patient: call",
+                               urgency=case.get("urgency"), detail="no_show")
+        await self._apply(db, case_id, S.NO_SHOW, S.REFERRED, "agent:navigator", "rebook offered", {})
+        return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
 
     async def record_outcome(
         self,
@@ -972,7 +1140,7 @@ class Coordinator:
         return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
 
     async def reassure(
-        self, db: aiosqlite.Connection, case_id: str, question: str
+        self, db: aiosqlite.Connection, case_id: str, question: str, language: str | None = None
     ) -> dict[str, Any]:
         self._begin_chain(case_id)
         case = await self.ledger.get_case(db, case_id)
@@ -985,7 +1153,12 @@ class Coordinator:
             reassurance_agent.run(
                 {
                     "case_id": case_id,
-                    "inputs": {"question": question, "language": case.get("language") or "en"},
+                    "inputs": {
+                        "question": question,
+                        "language": question_language(
+                            question, language or case.get("language") or "en", chosen=bool(language)
+                        ),
+                    },
                 }
             ),
         )

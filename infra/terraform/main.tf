@@ -122,6 +122,8 @@ module "storage" {
   location                      = var.location
   replication_type              = var.storage_replication_type
   container_name                = var.kb_container_name
+  extra_containers              = ["uploads", "quarantine"]
+  enable_malware_scan           = var.enable_storage_malware_scan
   public_network_access_enabled = local.setup_access_open
   network_default_action        = local.private ? "Deny" : "Allow"
   ip_rules                      = local.private ? var.deployer_ip_allowlist : []
@@ -238,6 +240,7 @@ module "apim" {
   search_calls_per_minute        = var.apim_search_calls_per_minute
   enable_content_safety          = var.enable_content_safety
   content_safety_endpoint        = var.enable_content_safety ? module.foundry.endpoint : null
+  enable_gateway_content_safety  = var.enable_gateway_content_safety
   enable_language                = var.enable_language_pii
   language_endpoint              = var.enable_language_pii ? module.foundry.endpoint : null
   enable_semantic_cache          = var.enable_semantic_cache
@@ -390,6 +393,8 @@ module "hosting" {
       LLM_MODEL_STRONG                  = local.deployments_by_role.strong[0]
       LLM_DAILY_TOKEN_BUDGET            = tostring(var.llm_daily_token_budget)
       LLM_ROUTER_ESCALATE_CHARS         = tostring(var.llm_router_escalate_chars)
+      LLM_ROUTER_MODE                   = var.llm_router_mode
+      LLM_MODEL_ROUTER                  = var.llm_model_router_deployment
       AZURE_OPENAI_API_VERSION          = var.openai_api_version
       AZURE_OPENAI_MODEL_STRONG         = local.deployments_by_role.strong[0]
       AZURE_OPENAI_EMBEDDING_DEPLOYMENT = local.embedding_deployment

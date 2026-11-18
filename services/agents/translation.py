@@ -1,4 +1,4 @@
-"""Live translation between a coordinator and a patient (EN <-> AR).
+"""Live translation between a coordinator and a patient (EN <-> AR, plus Hindi, Urdu, Malayalam, Filipino, Bengali).
 
 1. Approved glossary for the phrases coordinators use most: exact, instant, no model call.
 2. AI on: the text is pseudonymized ([NAME_1], [PHONE_1] ... stay on our side), translated by the
@@ -14,9 +14,10 @@ from typing import Any, Literal
 
 from agents.common.guardrails import content_safe
 from agents.common.language_pii import LanguagePiiError
+from agents.common.languages import SUPPORTED
 from agents.common.pii import pseudonymize_layered, restore
 
-Lang = Literal["en", "ar"]
+Lang = Literal["en", "ar", "hi", "ur", "ml", "tl", "bn"]
 _AR = re.compile(r"[\u0600-\u06FF]")
 
 GLOSSARY: dict[str, str] = {
@@ -33,7 +34,9 @@ _REVERSE = {v: k for k, v in GLOSSARY.items()}
 
 
 def detect(text: str) -> Lang:
-    return "ar" if _AR.search(text or "") else "en"
+    from agents.common.languages import detect as detect_script
+
+    return detect_script(text) or "en"  # type: ignore[return-value]
 
 
 def _norm(s: str) -> str:
@@ -42,6 +45,8 @@ def _norm(s: str) -> str:
 
 def glossary_lookup(text: str, target: Lang) -> str | None:
     t = _norm(text)
+    if target not in ("en", "ar"):
+        return None
     table = GLOSSARY if target == "ar" else _REVERSE
     return table.get(t)
 
@@ -55,6 +60,11 @@ def _plausible(src: str, out: str, target: Lang, placeholders: list[str]) -> boo
         return False
     if target == "en" and len(_AR.findall(out)) > len(out) * 0.2:
         return False
+    if target not in ("en", "ar"):
+        from agents.common.languages import script_ok
+
+        if not script_ok(re.sub(r"\[[A-Z_]+\d*\]", "", out), target):
+            return False
     return all(ph in out for ph in placeholders) and content_safe(out)
 
 
@@ -82,7 +92,7 @@ async def translate(text: str, target: Lang | None = None) -> dict[str, Any]:
                 "note": "PII check unavailable, so nothing was sent for translation. Use an interpreter or the approved phrases."}
     prompt = get_prompt("translate")
     out = await chat_completion(
-        system=f"{prompt.system}\nTranslate to: {'Arabic' if target == 'ar' else 'English'}.",
+        system=f"{prompt.system}\nTranslate to: {SUPPORTED[target]}.",
         user=pseudo.text,
         task="translate",
         temperature=prompt.temperature if prompt.temperature is not None else 0,

@@ -182,3 +182,19 @@ variable "semantic_cache_ttl_seconds" {
   type        = number
   default     = 604800
 }
+
+variable "enable_gateway_content_safety" {
+  description = "Run the llm-content-safety policy (Prompt Shields + harm categories) on every OpenAI request at the gateway, as a second layer after the app's own check."
+  type        = bool
+  default     = true
+}
+
+variable "gateway_content_safety_threshold" {
+  description = "Block at this severity or above (EightSeverityLevels, 0-7) for Hate, Sexual, SelfHarm and Violence."
+  type        = number
+  default     = 4
+  validation {
+    condition     = var.gateway_content_safety_threshold >= 0 && var.gateway_content_safety_threshold <= 7
+    error_message = "Threshold must be between 0 and 7."
+  }
+}

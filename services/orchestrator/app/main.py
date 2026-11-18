@@ -216,6 +216,7 @@ class OutcomeIn(BaseModel):
 
 class QuestionIn(BaseModel):
     question: str = Field(max_length=500)
+    language: str | None = Field(default=None, pattern="^(en|ar|hi|ur|ml|tl|bn)$")
 
 
 class CallOutcomeIn(BaseModel):
@@ -319,6 +320,14 @@ async def demo_index():
                 "role": "patient",
                 "case_key": "gc01_fatima_hba1c",
                 "case_id": DEMO_IDS.get("gc01_fatima_hba1c"),
+                "locale": "ar",
+            },
+            {
+                "id": "patient-saeed",
+                "label": "Patient Saeed, 68 (synthetic, easy mode)",
+                "role": "patient",
+                "case_key": "gc11_senior",
+                "case_id": DEMO_IDS.get("gc11_senior"),
                 "locale": "ar",
             },
             {
@@ -477,6 +486,19 @@ async def attend(case_id: str, note: str = "Encounter completed"):
         await db.close()
 
 
+@app.post("/cases/{case_id}/no-show")
+async def no_show(case_id: str, request: Request, note: str = ""):
+    db = await ledger.connect()
+    try:
+        return await coordinator.mark_no_show(db, case_id, actor=_persona(request) or "human:clinic", note=note)
+    except CaseNotFound:
+        raise HTTPException(404, "case not found") from None
+    except IllegalTransition as e:
+        raise HTTPException(400, str(e)) from e
+    finally:
+        await db.close()
+
+
 @app.post("/cases/{case_id}/outcome")
 async def record_outcome(case_id: str, body: OutcomeIn):
     db = await ledger.connect()
@@ -598,7 +620,7 @@ async def callback_done(case_id: str, request: Request):
 async def reassure(case_id: str, body: QuestionIn):
     db = await ledger.connect()
     try:
-        return await coordinator.reassure(db, case_id, body.question)
+        return await coordinator.reassure(db, case_id, body.question, language=body.language)
     except IllegalTransition as e:
         raise HTTPException(400, str(e)) from e
     finally:
@@ -652,6 +674,85 @@ async def concern(case_id: str, body: ConcernIn):
     except CaseNotFound:
         raise HTTPException(404, "case not found") from None
     except IllegalTransition as e:
+        raise HTTPException(400, str(e)) from e
+    finally:
+        await db.close()
+
+
+class CallbackIn(BaseModel):
+    reason: str = Field(default="", max_length=200)
+
+
+class CaregiverIn(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    relation: str = Field(min_length=1, max_length=20)
+    phone_last4: str = Field(pattern=r"^\d{4}$")
+    consent: bool
+
+
+class DocumentIn(BaseModel):
+    filename: str = Field(min_length=1, max_length=120)
+    content_b64: str = Field(min_length=4, max_length=14_500_000)
+    purpose: Literal["claim", "lab_report"] = "claim"
+    doc_id: str | None = Field(default=None, max_length=40)
+
+
+@app.post("/cases/{case_id}/documents")
+async def upload_document(case_id: str, body: DocumentIn):
+    import base64
+    import binascii
+
+    try:
+        data = base64.b64decode(body.content_b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(400, "content_b64 is not valid base64") from None
+    db = await ledger.connect()
+    try:
+        return await coordinator.add_document(db, case_id, filename=body.filename, data=data,
+                                              purpose=body.purpose, doc_id=body.doc_id)
+    except CaseNotFound:
+        raise HTTPException(404, "case not found") from None
+    finally:
+        await db.close()
+
+
+class PreferencesIn(BaseModel):
+    language: str | None = Field(default=None, pattern="^(en|ar|hi|ur|ml|tl|bn)$")
+    easy_mode: bool | None = None
+
+
+@app.post("/cases/{case_id}/preferences")
+async def preferences(case_id: str, body: PreferencesIn):
+    db = await ledger.connect()
+    try:
+        return await coordinator.set_preferences(db, case_id, language=body.language, easy_mode=body.easy_mode)
+    except CaseNotFound as e:
+        raise HTTPException(404, "case not found") from e
+    finally:
+        await db.close()
+
+
+@app.post("/cases/{case_id}/callback-request")
+async def callback_request(case_id: str, body: CallbackIn):
+    db = await ledger.connect()
+    try:
+        return await coordinator.request_callback(db, case_id, body.reason)
+    except CaseNotFound:
+        raise HTTPException(404, "case not found") from None
+    finally:
+        await db.close()
+
+
+@app.post("/cases/{case_id}/caregiver")
+async def caregiver(case_id: str, body: CaregiverIn):
+    db = await ledger.connect()
+    try:
+        return await coordinator.set_caregiver(
+            db, case_id, name=body.name, relation=body.relation, phone_last4=body.phone_last4, consent=body.consent
+        )
+    except CaseNotFound:
+        raise HTTPException(404, "case not found") from None
+    except ValueError as e:
         raise HTTPException(400, str(e)) from e
     finally:
         await db.close()
@@ -814,7 +915,7 @@ async def insurer_exchanges():
 
 class TranslateIn(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
-    target: Literal["en", "ar"] | None = None
+    target: Literal["en", "ar", "hi", "ur", "ml", "tl", "bn"] | None = None
 
 
 @app.post("/translate")
@@ -914,7 +1015,7 @@ async def ai_metrics_view():
     """AI gateway usage seen by this API replica: tokens, cache, safety, routing, budget (no text)."""
     from agents.common import ai_metrics, content_safety
     from agents.common.llm_client import ai_enabled, llm_configured
-    from agents.common.llm_router import POLICY, deployment_for
+    from agents.common.llm_router import POLICY, deployment_for, router_deployment, router_mode
     from agents.common.prompts import list_prompts
 
     return {
@@ -922,6 +1023,8 @@ async def ai_metrics_view():
         "llm_configured": llm_configured(),
         "content_safety": content_safety.configured(),
         "router": {
+            "mode": router_mode(),
+            "azure_model_router": router_deployment() if router_mode() == "azure" else None,
             "small": deployment_for("small") or None,
             "strong": deployment_for("strong") or None,
             "tasks": {k: {"tier": v.tier, "max_tokens": v.max_tokens, "cacheable": v.cacheable} for k, v in POLICY.items()},
@@ -941,6 +1044,22 @@ async def kpis():
         return compute_kpis(cases)
     finally:
         await db.close()
+
+
+@app.get("/benchmark/safety")
+async def safety_benchmark():
+    """Prompt-injection benchmark (synthetic) plus live safety counters from this replica."""
+    import json
+    from pathlib import Path
+
+    from agents.common import ai_metrics
+
+    path = Path(__file__).resolve().parents[3] / "benchmark" / "reports" / "safety.json"
+    report = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+    counters = ai_metrics.snapshot().get("counters", {})
+    live = {k: counters.get(k, 0) for k in
+            ("injection_blocks", "prompt_shield_blocks", "gateway_safety_blocks", "content_safety_blocks")}
+    return {"benchmark": report, "live": live}
 
 
 @app.get("/benchmark/fairness")

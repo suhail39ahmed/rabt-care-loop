@@ -178,6 +178,11 @@ async def chat_completion(
                 r = await _post_chat(client, provider, model, headers, payload)
             except Exception as e:
                 log.warning("llm_call_failed task=%s model=%s err=%s", task, model, type(e).__name__)
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if status == 403:
+                    # Layer 2: the gateway's llm-content-safety policy refused the prompt. Never retry it elsewhere.
+                    ai_metrics.incr("gateway_safety_blocks", task=task)
+                    return None
                 if i + 1 < len(models):
                     ai_metrics.incr("failovers", task=task, from_model=model, to_model=models[i + 1])
                     continue

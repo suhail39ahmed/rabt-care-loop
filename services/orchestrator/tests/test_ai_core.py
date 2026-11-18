@@ -263,3 +263,34 @@ def test_ai_metrics_endpoint():
         data = c.get("/ai/metrics").json()
     assert {"ai_enabled", "router", "prompts", "budget", "counters"} <= set(data)
     assert any(p["id"] == "rag_answer" for p in data["prompts"])
+
+
+def test_router_mode_defaults_to_python(monkeypatch):
+    from agents.common import llm_router
+
+    monkeypatch.delenv("LLM_ROUTER_MODE", raising=False)
+    monkeypatch.setenv("LLM_MODEL_SMALL", "chat-small")
+    monkeypatch.setenv("LLM_MODEL_STRONG", "chat-strong")
+    d = llm_router.route("rag_answer")
+    assert llm_router.router_mode() == "python"
+    assert d.model == "chat-strong" and d.fallback_model == "chat-small" and d.reason == "policy"
+
+
+def test_router_mode_azure_uses_model_router_with_python_failover(monkeypatch):
+    from agents.common import llm_router
+
+    monkeypatch.setenv("LLM_ROUTER_MODE", "azure")
+    monkeypatch.setenv("LLM_MODEL_ROUTER", "model-router")
+    monkeypatch.setenv("LLM_MODEL_SMALL", "chat-small")
+    monkeypatch.setenv("LLM_MODEL_STRONG", "chat-strong")
+    d = llm_router.route("translate")
+    assert d.model == "model-router" and d.tier == "router" and d.reason == "azure_model_router"
+    assert d.fallback_model == "chat-small"
+    assert d.max_tokens == llm_router.POLICY["translate"].max_tokens
+
+
+def test_router_mode_unknown_value_falls_back_to_python(monkeypatch):
+    from agents.common import llm_router
+
+    monkeypatch.setenv("LLM_ROUTER_MODE", "something-else")
+    assert llm_router.router_mode() == "python"

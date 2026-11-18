@@ -56,3 +56,21 @@ variable "ip_rules" {
   type        = list(string)
   default     = []
 }
+
+variable "extra_containers" {
+  description = "Additional private containers (uploads, quarantine)."
+  type        = list(string)
+  default     = []
+}
+
+variable "enable_malware_scan" {
+  description = "Defender for Storage malware scanning on upload (billed per GB scanned)."
+  type        = bool
+  default     = false
+}
+
+variable "malware_scan_cap_gb_per_month" {
+  description = "Monthly cap for Defender malware scanning."
+  type        = number
+  default     = 5
+}

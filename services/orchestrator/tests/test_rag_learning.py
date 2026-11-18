@@ -140,3 +140,13 @@ def test_ingest_plan_and_schema():
     schema = rag_ingest.index_schema("rabt-kb")
     vec = next(f for f in schema["fields"] if f["name"] == "content_vector")
     assert vec["dimensions"] == 1536 and schema["semantic"]["configurations"][0]["name"] == "rabt-semantic"
+
+
+def test_question_language_follows_the_script_the_patient_typed():
+    from app.coordinator import question_language
+
+    assert question_language("كيف أستعد لتنظير القولون؟", "en") == "ar"
+    assert question_language("How do I prepare for a colonoscopy?", "ar") == "en"
+    assert question_language("FIT ايجابي ماذا يعني", "en") == "ar"
+    assert question_language("123", "ar") == "ar"
+    assert question_language("hello", "fr") == "en"

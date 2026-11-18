@@ -346,7 +346,7 @@ variable "redis_sku_name" {
 variable "semantic_cache_score_threshold" {
   description = "azure-openai-semantic-cache-lookup score-threshold (lower = stricter match)."
   type        = number
-  default     = 0.05
+  default     = 0.15
 }
 
 variable "semantic_cache_ttl_seconds" {

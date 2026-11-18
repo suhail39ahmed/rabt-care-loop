@@ -39,10 +39,12 @@ apim_auth_mode      = "subscription_key"
 enable_content_safety = true
 enable_language_pii   = true
 # Redis + llm-semantic-cache-* on OpenAI (only when x-rabt-cacheable: true).
-enable_semantic_cache = true
+enable_semantic_cache          = true
+semantic_cache_score_threshold = 0.15 # was 0.05; a bit looser for near-duplicate prompts
+# semantic_cache_ttl_seconds default = 604800 (7 days)
 
-# Kill switch for the deployed API: false = templates only (safe default for a public demo).
-ai_enabled = false
+# Kill switch for the deployed API: true for the AI demo (Foundry + APIM gateway wired).
+ai_enabled = true
 
 registry_sku     = "Basic"
 api_min_replicas = 1

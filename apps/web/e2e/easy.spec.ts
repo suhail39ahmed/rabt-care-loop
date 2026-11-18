@@ -15,7 +15,7 @@ test("senior patient gets easy mode, one step per screen, and a call-me button t
   await expect(page.getByText("A coordinator will call you soon.").first()).toBeVisible({ timeout: 15000 });
 
   await page.goto("/board");
-  await page.getByRole("button", { name: /Senior \/ assisted/ }).click();
+  await page.locator("button.chip", { hasText: /Senior \/ assisted/ }).click();
   const row = page.locator(".case-row", { hasText: "Saeed" });
   await expect(row).toBeVisible({ timeout: 15000 });
   await expect(row).toContainText("Assisted");

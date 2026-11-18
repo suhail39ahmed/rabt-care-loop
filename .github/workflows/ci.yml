@@ -104,7 +104,7 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     needs: [test, web]
     steps:
       - uses: actions/checkout@v4
@@ -154,3 +154,21 @@ jobs:
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
           NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
+      - name: i18n coverage
+        if: always()
+        run: |
+          if [ -f test-results/i18n-coverage.json ]; then
+            echo "### i18n coverage (patient: 7 locales, staff: Arabic)" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat test-results/i18n-coverage.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+        working-directory: apps/web
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-report
+          path: |
+            apps/web/test-results/
+            apps/web/playwright-report/
+          retention-days: 14

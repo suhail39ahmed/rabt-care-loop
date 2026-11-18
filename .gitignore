@@ -36,3 +36,7 @@ data/kb/_pending/*.md
 
 # Offline KB index (scripts/rag_ingest.py --offline)
 .kb-index/
+
+# Playwright output
+apps/web/test-results/
+apps/web/playwright-report/

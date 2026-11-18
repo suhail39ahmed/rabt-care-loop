@@ -37,7 +37,7 @@ test("AR and EN patient chrome", async ({ page, request }) => {
   const caseId = body.cases?.gc01_fatima_hba1c || body.personas?.[0]?.case_id;
 
   await page.goto(`/patient/${caseId}?lang=ar`);
-  await expect(page.getByText(/هذا ليس تشخيصاً|بطاقة النتيجة/i).first()).toBeVisible({
+  await expect(page.getByText(/هذا ليس تشخيصاً|نتيجتك/i).first()).toBeVisible({
     timeout: 30000,
   });
 

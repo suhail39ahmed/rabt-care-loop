@@ -10,7 +10,7 @@ flowchart LR
     SB["Service Bus / local queue"]
   end
 
-  subgraph ORCH["Rabt orchestrator — FastAPI"]
+  subgraph ORCH["Rabt orchestrator — FastAPI on Container Apps"]
     SM["Case state machine"]
     CO["Coordinator supervisor"]
     HITL["HITL gates"]
@@ -18,19 +18,26 @@ flowchart LR
 
   subgraph AG["Agents"]
     DET["Deterministic<br/>DQ · Triage · Ownership<br/>Escalation · Navigator · Closure"]
-    LLM["LLM-assisted via Agent Framework<br/>Comms · Reassurance · E-consult"]
+    LLM["LLM-assisted via llm_client<br/>Comms · Reassurance · Translate"]
   end
 
-  subgraph FOUNDRY["Azure AI Foundry"]
-    AOAI["Azure OpenAI chat"]
-    CS["Content Safety"]
+  subgraph GATE["APIM AI gateway — apim-rabt-pilot-sea"]
+    APIM["Quotas · MI · no body logs<br/>semantic cache · traffic fragments"]
+  end
+
+  subgraph FOUNDRY["Microsoft Foundry — aif-rabt-pilot-aue"]
+    AOAI["Azure OpenAI chat / embed"]
+    CS["Content Safety + Prompt Shields"]
+    LANG["Language PII"]
+  end
+
+  subgraph DATA["Retrieval + cache"]
     AIS["AI Search KB"]
+    REDIS["Managed Redis semantic cache"]
   end
 
-  subgraph MCP["MCP tool servers"]
-    MF["fhir-mcp"]
-    MD["directory-mcp"]
-    MM["messaging-mcp"]
+  subgraph A2A["Signed A2A"]
+    INS["Demo insurer agent"]
   end
 
   subgraph UI["Apps"]
@@ -43,11 +50,14 @@ flowchart LR
   CO --> SM
   CO --> DET
   CO --> LLM
-  LLM --> AOAI
-  LLM --> CS
-  LLM --> AIS
-  CO --> MCP
+  LLM --> APIM
+  APIM --> AOAI
+  APIM --> CS
+  APIM --> LANG
+  APIM --> AIS
+  APIM -.-> REDIS
   CO --> HITL
+  CO -->|HMAC A2A| INS
   HITL --> BRD
   CO --> PAT
   CO --> BRD

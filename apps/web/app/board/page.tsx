@@ -1,9 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { api, setApiPersona } from "@/lib/api";
 import { LiveTranslate } from "@/components/LiveTranslate";
+import { LangSwitcher } from "@/components/LangSwitcher";
+import { STAFF_LOCALES, useLocale } from "@/lib/i18n";
+
+/** Board refresh interval while live updates are on (ms). */
+const POLL_MS = 3000;
 
 type Evidence = {
   attended_encounter?: boolean;
@@ -14,6 +19,12 @@ type Evidence = {
   pending_approval_token?: string;
   approvers?: string[];
   call_outcome?: string;
+  age?: number;
+  assisted?: boolean;
+  callback_requested?: boolean;
+  reminder_channels?: string[];
+  caregiver?: { name: string; relation: string; phone_last4?: string };
+  documents?: Array<{ doc_id?: string | null; name?: string; status: string; flags?: string[]; stripped?: string[]; scanner?: string }>;
   expert_call_script?: string;
   coverage?: Record<string, unknown>;
   payment_mode?: string;
@@ -135,6 +146,21 @@ function urgencyTag(u?: string): { cls: string; text: string } {
   return { cls: "role", text: "Not triaged" };
 }
 
+type Filter = "all" | "assisted" | "documents";
+
+function isAssisted(c: Case) {
+  return !!c.evidence?.assisted;
+}
+
+function hasFlaggedDocument(c: Case) {
+  return (c.evidence?.documents || []).some((d) => d.status === "quarantined");
+}
+
+/** A short fingerprint of what a coordinator sees for a case; a change highlights the row. */
+function signature(c: Case) {
+  return [c.state, c.urgency, c.ladder_step, c.owner_name, c.timeline.length, c.evidence?.claim?.status].join("|");
+}
+
 export default function BoardPage() {
   const [cases, setCases] = useState<Case[]>([]);
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -143,6 +169,15 @@ export default function BoardPage() {
   const [persona, setPersona] = useState<string>(PERSONAS[0].id);
   const [err, setErr] = useState("");
   const [flash, setFlash] = useState("");
+  const L = useLocale({ allowed: STAFF_LOCALES });
+  const { s } = L;
+  const [live, setLive] = useState(true);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [changed, setChanged] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<Filter>("all");
+  const [loaded, setLoaded] = useState(false);
+  const seen = useRef<Map<string, string>>(new Map());
+  const selectedId = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     const [cs, q, ap] = await Promise.all([
@@ -150,8 +185,24 @@ export default function BoardPage() {
       api<QueueItem[]>("/queue"),
       api<Approval[]>("/approvals?action=exceptional_closure"),
     ]);
+    const next = new Map(cs.map((c) => [c.case_id, signature(c)]));
+    if (seen.current.size) {
+      const diff = new Set<string>();
+      next.forEach((sig, id) => {
+        if (seen.current.get(id) !== sig) diff.add(id);
+      });
+      if (diff.size) setChanged(diff);
+    }
+    seen.current = next;
     setCases(cs);
     setQueue(q);
+    setUpdatedAt(Date.now());
+    setLoaded(true);
+    setErr("");
+    if (selectedId.current) {
+      const fresh = cs.find((c) => c.case_id === selectedId.current);
+      if (fresh) setSelected(fresh);
+    }
     // 4-eyes panel is closure-only; critical ladder items stay in the escalation queue
     setApprovals(ap.filter((a) => a.action === "exceptional_closure"));
     return cs;
@@ -162,10 +213,43 @@ export default function BoardPage() {
     refresh().catch((e) => setErr(String(e)));
   }, [refresh, persona]);
 
+  useEffect(() => {
+    selectedId.current = selected?.case_id || null;
+  }, [selected]);
+
+  // Live board: poll while the tab is visible so patient actions show up without a reload.
+  useEffect(() => {
+    if (!live) return;
+    const tick = () => {
+      if (document.visibilityState === "visible") refresh().catch(() => setErr(s("Could not load the board. Retrying…")));
+    };
+    const t = window.setInterval(tick, POLL_MS);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      window.clearInterval(t);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [live, refresh, s]);
+
+  useEffect(() => {
+    if (!changed.size) return;
+    const t = window.setTimeout(() => setChanged(new Set()), 2600);
+    return () => window.clearTimeout(t);
+  }, [changed]);
+
+  const shown = useMemo(
+    () => cases.filter((c) => (filter === "assisted" ? isAssisted(c) : filter === "documents" ? hasFlaggedDocument(c) : true)),
+    [cases, filter]
+  );
+  const counts = useMemo(
+    () => ({ all: cases.length, assisted: cases.filter(isAssisted).length, documents: cases.filter(hasFlaggedDocument).length }),
+    [cases]
+  );
+
   // Deep links from the demo tour: /board?focus=<case_id>
   useEffect(() => {
     const focus = new URLSearchParams(window.location.search).get("focus");
-    if (focus) openCase(focus).catch(() => setErr(`Case ${focus} not found (the demo may have been reset).`));
+    if (focus) openCase(focus).catch(() => setErr(s("Case {id} not found (the demo may have been reset).", { id: focus })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -192,32 +276,32 @@ export default function BoardPage() {
 
   const notify = async (id: string) => {
     await api(`/cases/${id}/notify`, { method: "POST" });
-    await afterAction(id, "Patient notified");
+    await afterAction(id, s("Patient notified"));
   };
 
   const markUnreachable = async (id: string) => {
     await api(`/cases/${id}/unreachable`, { method: "POST" });
-    await afterAction(id, "Marked unreachable");
+    await afterAction(id, s("Marked unreachable"));
   };
 
   const resumeConsent = async (id: string) => {
     await api(`/cases/${id}/consent/resume`, { method: "POST" });
-    await afterAction(id, "Consent resumed");
+    await afterAction(id, s("Consent resumed"));
   };
 
   const resolveDataQuery = async (id: string) => {
     await api(`/cases/${id}/data-query/resolve`, { method: "POST" });
-    await afterAction(id, "Data query resolved");
+    await afterAction(id, s("Data query resolved"));
   };
 
   const callbackDone = async (id: string) => {
     await api(`/cases/${id}/callback/done`, { method: "POST" });
-    await afterAction(id, "Callback completed");
+    await afterAction(id, s("Callback completed"));
   };
 
   const resolveQueue = async (qid: string, caseId: string) => {
     await api(`/queue/${qid}/resolve`, { method: "POST" });
-    await afterAction(caseId, "Queue item resolved");
+    await afterAction(caseId, s("Queue item resolved"));
   };
 
   const handleEscalation = async (id: string) => {
@@ -230,17 +314,22 @@ export default function BoardPage() {
       method: "POST",
       body: JSON.stringify({ outcome }),
     });
-    await afterAction(id, `Call outcome: ${outcome}`);
+    await afterAction(id, s("Call outcome: {outcome}", { outcome: s(outcome) }));
   };
 
   const updateClaim = async (id: string, status: string) => {
     await api(`/cases/${id}/claim`, { method: "POST", body: JSON.stringify({ status }) });
-    await afterAction(id, `Claim: ${status}`);
+    await afterAction(id, s("Claim: {status}", { status: s(status) }));
   };
 
   const attend = async (id: string) => {
     await api(`/cases/${id}/attend`, { method: "POST" });
-    await afterAction(id, "Attendance recorded — outcome still required to close.");
+    await afterAction(id, s("Attendance recorded — outcome still required to close."));
+  };
+
+  const noShow = async (id: string) => {
+    await api(`/cases/${id}/no-show`, { method: "POST" });
+    await afterAction(id, s("No-show recorded — rebooking offered and a follow-up added to the queue."));
   };
 
   const recordOutcome = async (id: string) => {
@@ -251,7 +340,7 @@ export default function BoardPage() {
         outcome_note: "Follow-up plan documented",
       }),
     });
-    await afterAction(id, "Outcome linked — evidence gate re-checked.");
+    await afterAction(id, s("Outcome linked — evidence gate re-checked."));
   };
 
   const tryClose = async (id: string) => {
@@ -262,7 +351,7 @@ export default function BoardPage() {
         human_signer: persona,
       }),
     });
-    await afterAction(id, "Close requested — check pending approvals if evidence is incomplete.");
+    await afterAction(id, s("Close requested — check pending approvals if evidence is incomplete."));
   };
 
   const vote = async (token: string, decision: "approved" | "rejected", caseId: string) => {
@@ -278,8 +367,8 @@ export default function BoardPage() {
       else await openCase(caseId);
       setFlash(
         result.status === "approved"
-          ? `Approved — case is now ${result.case?.state || "updated"}.`
-          : `Vote recorded (${result.status}).`
+          ? s("Approved — case is now {state}.", { state: s(humanizeState(result.case?.state || "updated")) })
+          : s("Vote recorded ({status}).", { status: s(result.status) })
       );
     } catch (e) {
       setErr(String(e));
@@ -287,10 +376,10 @@ export default function BoardPage() {
   };
 
   const evidenceBits = (ev?: Evidence) => {
-    const attended = ev?.attended_encounter ? "Attendance ✓" : "Attendance missing";
+    const attended = ev?.attended_encounter ? s("Attendance ✓") : s("Attendance missing");
     const outcome = ev?.outcome_document
-      ? `Outcome ✓${ev.outcome_ref ? ` (${ev.outcome_ref})` : ""}`
-      : "Outcome missing";
+      ? `${s("Outcome ✓")}${ev.outcome_ref ? ` (${ev.outcome_ref})` : ""}`
+      : s("Outcome missing");
     return `${attended} · ${outcome}`;
   };
 
@@ -301,16 +390,16 @@ export default function BoardPage() {
           <div className="mark">ر</div>
           <div>
             <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "1.05rem", margin: 0 }}>
-              Rabt board
+              {s("Rabt board")}
             </h1>
             <div className="muted" style={{ fontSize: "0.82rem" }}>
-              HITL queue · ownership · two-person closure
+              {s("HITL queue · ownership · two-person closure")}
             </div>
           </div>
         </div>
         <div className="actions" style={{ marginTop: 0, alignItems: "center" }}>
           <label className="muted" style={{ fontSize: "0.82rem" }}>
-            Acting as{" "}
+            {s("Acting as")}{" "}
             <select
               value={persona}
               onChange={(e) => {
@@ -327,7 +416,7 @@ export default function BoardPage() {
             >
               {PERSONAS.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.label}
+                  {s(p.label)}
                 </option>
               ))}
             </select>
@@ -339,10 +428,10 @@ export default function BoardPage() {
               await api("/demo/advance?minutes=15", { method: "POST" });
               await refresh();
               if (selected) await openCase(selected.case_id);
-              setFlash("Demo clock +15 minutes — ladder tick ran.");
+              setFlash(s("Demo clock +15 minutes — ladder tick ran."));
             }}
           >
-            Advance +15m
+            {s("Advance +15m")}
           </button>
           <button
             className="btn ghost"
@@ -351,23 +440,38 @@ export default function BoardPage() {
               setSelected(null);
               await api("/demo/reset", { method: "POST" });
               await refresh();
-              setFlash("Demo reset — 7 seeded cases restored.");
+              setFlash(s("Demo reset — {n} seeded cases restored.", { n: L.num(8) }));
             }}
           >
-            Reset demo
+            {s("Reset demo")}
           </button>
           <Link className="btn secondary" href="/">
-            Demo home
+            {s("Demo home")}
           </Link>
+          <LangSwitcher L={L} compact />
         </div>
       </div>
 
       <div className="banner rise d2">
-        Shared demo — data resets on restart or Reset demo. Switch persona to cast the second approval vote.
+        {s("Shared demo — data resets on restart or Reset demo. Switch persona to cast the second approval vote.")}
       </div>
-      {err ? <div className="banner">{err}</div> : null}
+      <div className="live-bar" role="status" aria-live="polite">
+        <span className={`live-dot ${live ? "on" : ""}`} aria-hidden="true" />
+        <strong>{live ? s("Live") : s("Paused")}</strong>
+        {updatedAt ? (
+          <span className="muted">{s("Updated {time}", { time: L.date(updatedAt, { hour: "2-digit", minute: "2-digit", second: "2-digit" }) })}</span>
+        ) : null}
+        <button type="button" className="btn ghost small-btn" onClick={() => setLive((v) => !v)} aria-pressed={!live}>
+          {live ? s("Pause live updates") : s("Resume live updates")}
+        </button>
+      </div>
+      {err ? (
+        <div className="banner error" role="alert">
+          {err}
+        </div>
+      ) : null}
       {flash ? (
-        <div className="banner" style={{ background: "#eef7f1", borderColor: "#b7d8c3" }}>
+        <div className="banner success" role="status">
           {flash}
         </div>
       ) : null}
@@ -375,12 +479,12 @@ export default function BoardPage() {
       <div className="board-layout rise d3">
         <section className="panel soft">
           <h2 style={{ fontFamily: "var(--font-display)", marginTop: 0 }}>
-            Pending approvals{" "}
+            {s("Pending approvals")}{" "}
             <span className="tag human" style={{ marginInlineStart: "0.4rem" }}>
-              4-eyes
+              {s("4-eyes")}
             </span>
           </h2>
-          {approvals.length === 0 ? <p className="muted">No open approval requests</p> : null}
+          {approvals.length === 0 ? <p className="muted">{s("No open approval requests")}</p> : null}
           {approvals.map((a) => {
             const isRequester = a.requested_by === persona;
             return (
@@ -390,12 +494,17 @@ export default function BoardPage() {
                 style={{ width: "100%", marginBottom: "0.5rem", background: "#fff7f4", borderColor: "#f2d2c8" }}
               >
                 <button type="button" style={{ all: "unset", cursor: "pointer", display: "block", width: "100%" }} onClick={() => openCase(a.case_id)}>
-                  <strong>{a.action.replace(/_/g, " ")}</strong>
+                  <strong>{s(a.action.replace(/_/g, " "))}</strong>
                   <div className="muted">
-                    Case {a.case_id} · {a.approve_count}/{a.required} votes · requested by {a.requested_by || "—"}
+                    {s("Case {id} · {votes}/{required} votes · requested by {by}", {
+                      id: a.case_id,
+                      votes: L.num(a.approve_count),
+                      required: L.num(a.required),
+                      by: a.requested_by || "—",
+                    })}
                   </div>
                   <div className="muted" style={{ fontSize: "0.78rem" }}>
-                    {a.votes.map((v) => `${v.user_id}: ${v.decision}`).join(" · ") || "No votes yet"}
+                    {a.votes.map((v) => `${v.user_id}: ${v.decision}`).join(" · ") || s("No votes yet")}
                   </div>
                 </button>
                 <div className="actions" style={{ marginTop: "0.55rem" }}>
@@ -403,10 +512,10 @@ export default function BoardPage() {
                     className="btn"
                     type="button"
                     disabled={isRequester}
-                    title={isRequester ? "Requester cannot approve their own request" : "Approve"}
+                    title={isRequester ? s("Requester cannot approve their own request") : s("Approve")}
                     onClick={() => vote(a.token, "approved", a.case_id)}
                   >
-                    Approve
+                    {s("Approve")}
                   </button>
                   <button
                     className="btn danger"
@@ -414,12 +523,12 @@ export default function BoardPage() {
                     disabled={isRequester}
                     onClick={() => vote(a.token, "rejected", a.case_id)}
                   >
-                    Reject
+                    {s("Reject")}
                   </button>
                 </div>
                 {isRequester ? (
                   <p className="muted" style={{ fontSize: "0.78rem", marginBottom: 0 }}>
-                    Switch persona — you requested this closure.
+                    {s("Switch persona — you requested this closure.")}
                   </p>
                 ) : null}
               </div>
@@ -427,9 +536,9 @@ export default function BoardPage() {
           })}
 
           <h2 style={{ fontFamily: "var(--font-display)" }}>
-            Escalation queue <span className="tag human" style={{ marginInlineStart: "0.4rem" }}>HITL</span>
+            {s("Escalation queue")} <span className="tag human" style={{ marginInlineStart: "0.4rem" }}>{s("HITL")}</span>
           </h2>
-          {queue.length === 0 ? <p className="muted">No open queue items</p> : null}
+          {queue.length === 0 ? <p className="muted">{s("No open queue items")}</p> : null}
           {queue.map((q) => (
             <div
               key={q.id}
@@ -437,15 +546,17 @@ export default function BoardPage() {
               style={{ width: "100%", marginBottom: "0.5rem", background: "#fff7f4", borderColor: "#f2d2c8" }}
             >
               <button type="button" style={{ all: "unset", cursor: "pointer", display: "block", width: "100%" }} onClick={() => openCase(q.case_id)}>
-                <strong>{q.title}</strong>
+                <strong data-src="record">{q.title}</strong>
                 <div className="muted queue-meta">
-                  {(() => {
-                    const qc = cases.find((x) => x.case_id === q.case_id);
-                    const who = (qc?.evidence as { patient_display_name?: string } | undefined)?.patient_display_name;
-                    return qc ? `${qc.result_display || q.case_id}${who ? ` · ${who}` : ""} · ` : "";
-                  })()}
-                  {urgencyTag(q.urgency).text} · {q.kind.replace(/_/g, " ")}
-                  {q.ladder_step ? ` · ladder step ${q.ladder_step}` : ""}
+                  <span data-src="record">
+                    {(() => {
+                      const qc = cases.find((x) => x.case_id === q.case_id);
+                      const who = (qc?.evidence as { patient_display_name?: string } | undefined)?.patient_display_name;
+                      return qc ? `${qc.result_display || q.case_id}${who ? ` · ${who}` : ""} · ` : "";
+                    })()}
+                  </span>
+                  {s(urgencyTag(q.urgency).text)} · {s(q.kind.replace(/_/g, " "))}
+                  {q.ladder_step ? ` · ${s("ladder step {n}", { n: L.num(q.ladder_step) })}` : ""}
                 </div>
               </button>
               <button
@@ -454,45 +565,81 @@ export default function BoardPage() {
                 style={{ marginTop: "0.4rem" }}
                 onClick={() => resolveQueue(q.id, q.case_id).catch((e) => setErr(String(e)))}
               >
-                Resolve queue item
+                {s("Resolve queue item")}
               </button>
             </div>
           ))}
 
-          <h2 style={{ fontFamily: "var(--font-display)" }}>All cases</h2>
-          {cases.map((c) => (
+          <h2 style={{ fontFamily: "var(--font-display)" }}>{s("All cases")}</h2>
+          <div className="filter-row" role="group" aria-label={s("Filter")}>
+            {(
+              [
+                ["all", s("All")],
+                ["assisted", s("Senior / assisted")],
+                ["documents", s("Document flagged")],
+              ] as Array<[Filter, string]>
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={`chip ${filter === id ? "active" : ""}`}
+                aria-pressed={filter === id}
+                onClick={() => setFilter(id)}
+              >
+                {label} <span className="count">{L.num(counts[id])}</span>
+              </button>
+            ))}
+          </div>
+          {!loaded ? (
+            <div className="skeleton-list" role="status" aria-label={s("Loading cases…")}>
+              <span />
+              <span />
+              <span />
+            </div>
+          ) : null}
+          {loaded && shown.length === 0 ? <p className="muted">{s("No cases match this filter")}</p> : null}
+          {shown.map((c) => (
             <button
               key={c.case_id}
               type="button"
-              className="choice"
+              className={`choice case-row ${changed.has(c.case_id) ? "changed" : ""} ${selected?.case_id === c.case_id ? "current" : ""}`}
               style={{ width: "100%", marginBottom: "0.5rem" }}
               onClick={() => openCase(c.case_id)}
+              aria-current={selected?.case_id === c.case_id ? "true" : undefined}
             >
               <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem" }}>
-                <strong>{c.result_display || c.case_id}</strong>
-                <span className={`tag ${urgencyTag(c.urgency).cls}`}>{urgencyTag(c.urgency).text}</span>
+                <strong data-src="record">{c.result_display || c.case_id}</strong>
+                <span className={`tag ${urgencyTag(c.urgency).cls}`}>{s(urgencyTag(c.urgency).text)}</span>
               </div>
+              {isAssisted(c) || hasFlaggedDocument(c) || c.evidence?.callback_requested || changed.has(c.case_id) ? (
+                <div className="chip-row tight">
+                  {isAssisted(c) ? <span className="tag assisted">{s("Assisted")}</span> : null}
+                  {c.evidence?.callback_requested ? <span className="tag human">{s("Call requested")}</span> : null}
+                  {hasFlaggedDocument(c) ? <span className="tag urgent">{s("Document quarantined")}</span> : null}
+                  {changed.has(c.case_id) ? <span className="tag ok">{s("Changed")}</span> : null}
+                </div>
+              ) : null}
               <div className="muted">
-                {boardStateLabel(c)} ·{" "}
-                {(c.evidence as { patient_display_name?: string } | undefined)?.patient_display_name ||
-                  c.patient_id}
+                {s(boardStateLabel(c))} ·{" "}
+                <span data-src="record">
+                  {(c.evidence as { patient_display_name?: string } | undefined)?.patient_display_name || c.patient_id}
+                </span>
                 {c.ladder_step ? ` · L${c.ladder_step}` : ""}
               </div>
             </button>
           ))}
         </section>
 
-        <section className="panel" id="case-detail" aria-label="Case detail">
+        <section className="panel" id="case-detail" aria-label={s("Case detail")}>
           {!selected ? (
             <div className="empty-state">
-              <h2 className="section-title">No case selected</h2>
+              <h2 className="section-title">{s("No case selected")}</h2>
               <p className="muted" style={{ margin: 0 }}>
-                Pick a case or a queue item to see its timeline (fact, calculated, AI) and the actions open to the persona
-                you are acting as.
+                {s("Pick a case or a queue item to see its timeline (fact, calculated, AI) and the actions open to the persona you are acting as.")}
               </p>
               {queue[0] ? (
                 <button type="button" className="btn" onClick={() => openCase(queue[0].case_id)}>
-                  Open the top queue item
+                  {s("Open the top queue item")}
                 </button>
               ) : null}
             </div>
@@ -500,55 +647,97 @@ export default function BoardPage() {
           {selected ? (
             <>
               <div className="chip-row">
-                <span className="tag role">{boardStateLabel(selected)}</span>
-                <span className={`tag ${urgencyTag(selected.urgency).cls}`}>{urgencyTag(selected.urgency).text}</span>
-                {selected.ladder_step ? <span className="tag calculated">Ladder {selected.ladder_step}</span> : null}
+                <span className="tag role">{s(boardStateLabel(selected))}</span>
+                <span className={`tag ${urgencyTag(selected.urgency).cls}`}>{s(urgencyTag(selected.urgency).text)}</span>
+                {selected.ladder_step ? (
+                  <span className="tag calculated">
+                    {s("Ladder")} {L.num(selected.ladder_step)}
+                  </span>
+                ) : null}
+                {isAssisted(selected) ? <span className="tag assisted">{s("Senior / assisted")}</span> : null}
               </div>
-              <h2 style={{ fontFamily: "var(--font-display)", letterSpacing: "-0.02em" }}>
+              <h2 style={{ fontFamily: "var(--font-display)", letterSpacing: "-0.02em" }} data-src="record">
                 {selected.result_display}
               </h2>
               <p className="muted">
-                {selected.case_id} · owner {selected.owner_name || "—"}
+                <span data-src="record">{selected.case_id}</span> · {s("Owner")} <span data-src="record">{selected.owner_name || "—"}</span>
               </p>
+              {isAssisted(selected) ? (
+                <div className="panel soft assisted-panel">
+                  <strong>{s("Senior / assisted")}</strong>
+                  <ul className="small plain">
+                    {selected.evidence?.age ? <li>{s("Age {n}", { n: L.num(selected.evidence.age) })}</li> : null}
+                    <li>{s("Reminders: phone call and SMS, not app-only")}</li>
+                    <li>{s("Slower patient-response ladder; a coordinator calls first")}</li>
+                    {selected.evidence?.callback_requested ? <li>{s("Patient asked for a phone call")}</li> : null}
+                    {selected.evidence?.caregiver ? (
+                      <li>
+                        {s("Caregiver")}: <span data-src="record">{selected.evidence.caregiver.name}</span> (
+                        {s(selected.evidence.caregiver.relation)}) · {s("consent recorded")}
+                      </li>
+                    ) : null}
+                  </ul>
+                </div>
+              ) : null}
+              {selected.evidence?.documents?.length ? (
+                <div className="panel soft" style={{ marginBottom: "0.75rem", boxShadow: "none" }}>
+                  <strong>{s("Documents")}</strong>
+                  <ul className="small plain">
+                    {selected.evidence.documents.map((d, i) => (
+                      <li key={`${d.doc_id || d.name}-${i}`}>
+                        <span className={`tag ${d.status === "quarantined" ? "urgent" : "ok"}`}>
+                          {d.status === "quarantined" ? s("Document quarantined") : s("Document checked")}
+                        </span>{" "}
+                        <span data-src="record">{d.name}</span>
+                        {d.flags?.length ? <span className="muted"> · {d.flags.map((r) => s(r.replace(/_/g, " "))).join(", ")}</span> : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               <p style={{ marginTop: 0 }}>
-                <strong>Evidence:</strong>{" "}
+                <strong>{s("Evidence:")}</strong>{" "}
                 <span className="muted">{evidenceBits(selected.evidence)}</span>
               </p>
               {(selected.coverage || selected.evidence?.coverage) && (
                 <div className="panel soft" style={{ marginBottom: "0.75rem", boxShadow: "none" }}>
-                  <strong>Coverage (Demo Health Insurance)</strong>
-                  <p className="muted" style={{ margin: "0.25rem 0 0" }}>
+                  <strong>{s("Coverage (Demo Health Insurance)")}</strong>
+                  <p className="muted small" style={{ margin: "0.25rem 0 0", overflowWrap: "anywhere" }} data-src="record" dir="ltr">
                     {JSON.stringify(selected.coverage || selected.evidence?.coverage)}
                   </p>
                   {(selected.coverage || selected.evidence?.coverage)?.preauth_status === "pending" ? (
-                    <p className="muted">Booking blocked until pre-auth clears.</p>
+                    <p className="muted">{s("Booking blocked until pre-auth clears.")}</p>
                   ) : null}
                 </div>
               )}
               {selected.evidence?.claim ? (
                 <div className="panel soft" style={{ marginBottom: "0.75rem", boxShadow: "none" }}>
-                  <strong>Reimbursement claim</strong>
+                  <strong>{s("Reimbursement claim")}</strong>
                   <p className="muted" style={{ margin: "0.25rem 0" }}>
-                    {selected.evidence.claim.provider_name} · status {selected.evidence.claim.status.replace(/_/g, " ")} · claimed AED{" "}
-                    {selected.evidence.claim.amount_claimed_aed ?? "?"} · expected back AED{" "}
-                    {selected.evidence.claim.expected_reimbursement_aed ?? "?"}
-                    {selected.evidence.claim.insurer_ack?.claim_reference
-                      ? ` · ref ${selected.evidence.claim.insurer_ack.claim_reference}`
-                      : ""}
+                    <span data-src="record">{selected.evidence.claim.provider_name}</span> ·{" "}
+                    {s("status {status}", { status: s(selected.evidence.claim.status.replace(/_/g, " ")) })} ·{" "}
+                    {s("claimed AED {amount}", { amount: L.num(selected.evidence.claim.amount_claimed_aed ?? 0) })} ·{" "}
+                    {s("expected back AED {amount}", { amount: L.num(selected.evidence.claim.expected_reimbursement_aed ?? 0) })}
+                    {selected.evidence.claim.insurer_ack?.claim_reference ? (
+                      <>
+                        {" "}
+                        · {s("ref")} <span data-src="record">{selected.evidence.claim.insurer_ack.claim_reference}</span>
+                      </>
+                    ) : null}
                   </p>
                   {selected.evidence.claim.status === "submitted" ? (
                     <div className="actions">
                       <button className="btn" type="button" onClick={() => updateClaim(selected.case_id, "approved")}>
-                        Insurer approved
+                        {s("Insurer approved")}
                       </button>
                       <button className="btn secondary" type="button" onClick={() => updateClaim(selected.case_id, "rejected")}>
-                        Insurer rejected
+                        {s("Insurer rejected")}
                       </button>
                     </div>
                   ) : null}
                   {selected.evidence.claim.status === "approved" ? (
                     <button className="btn" type="button" onClick={() => updateClaim(selected.case_id, "paid")}>
-                      Mark paid back
+                      {s("Mark paid back")}
                     </button>
                   ) : null}
                 </div>
@@ -556,39 +745,39 @@ export default function BoardPage() {
               <div className="actions">
                 {selected.state === "AwaitingOwner" ? (
                   <button className="btn" type="button" onClick={() => accept(selected.case_id)}>
-                    Accept ownership
+                    {s("Accept ownership")}
                   </button>
                 ) : null}
                 {selected.state === "Owned" ? (
                   <button className="btn" type="button" onClick={() => notify(selected.case_id)}>
-                    Notify patient
+                    {s("Notify patient")}
                   </button>
                 ) : null}
                 {selected.state === "PatientNotified" ? (
                   <button className="btn secondary" type="button" onClick={() => markUnreachable(selected.case_id)}>
-                    Mark unreachable
+                    {s("Mark unreachable")}
                   </button>
                 ) : null}
                 {selected.state === "OnHoldConsent" ? (
                   <button className="btn" type="button" onClick={() => resumeConsent(selected.case_id)}>
-                    Resume consent
+                    {s("Resume consent")}
                   </button>
                 ) : null}
                 {selected.state === "DataQuery" ? (
                   <button className="btn" type="button" onClick={() => resolveDataQuery(selected.case_id)}>
-                    Resolve data query
+                    {s("Resolve data query")}
                   </button>
                 ) : null}
                 {selected.state === "HumanCallback" ? (
                   <button className="btn" type="button" onClick={() => callbackDone(selected.case_id)}>
-                    Callback done
+                    {s("Callback done")}
                   </button>
                 ) : null}
                 {selected.state === "Escalated" && selected.urgency === "CRITICAL" ? (
                   <>
                     {selected.evidence?.expert_call_script ? (
                       <details style={{ width: "100%", marginBottom: "0.5rem" }}>
-                        <summary>Approved call script</summary>
+                        <summary>{s("Approved call script")}</summary>
                         <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.85rem" }}>
                           {selected.evidence.expert_call_script}
                         </pre>
@@ -599,39 +788,44 @@ export default function BoardPage() {
                       type="button"
                       onClick={() => logCallOutcome(selected.case_id, "reached_going_now")}
                     >
-                      Call: going now
+                      {s("Call: going now")}
                     </button>
                     <button
                       className="btn secondary"
                       type="button"
                       onClick={() => logCallOutcome(selected.case_id, "reached_refusing")}
                     >
-                      Call: refusing
+                      {s("Call: refusing")}
                     </button>
                     <button
                       className="btn secondary"
                       type="button"
                       onClick={() => logCallOutcome(selected.case_id, "not_reached")}
                     >
-                      Call: not reached
+                      {s("Call: not reached")}
                     </button>
                   </>
                 ) : null}
                 {selected.state === "Escalated" ? (
                   <button className="btn" type="button" onClick={() => handleEscalation(selected.case_id)}>
-                    Handle escalation (HITL)
+                    {s("Handle escalation (HITL)")}
                   </button>
                 ) : null}
                 {selected.state === "Booked" ? (
                   <button className="btn" type="button" onClick={() => attend(selected.case_id)}>
-                    Mark attended
+                    {s("Mark attended")}
+                  </button>
+                ) : null}
+                {selected.state === "Booked" ? (
+                  <button className="btn ghost" type="button" onClick={() => noShow(selected.case_id)}>
+                    {s("Did not attend")}
                   </button>
                 ) : null}
                 {(selected.state === "Owned" || selected.state === "ClosurePending" || selected.state === "Attended") &&
                 selected.evidence?.attended_encounter &&
                 !selected.evidence?.outcome_document ? (
                   <button className="btn" type="button" onClick={() => recordOutcome(selected.case_id)}>
-                    Record outcome
+                    {s("Record outcome")}
                   </button>
                 ) : null}
                 {selected.state !== "Closed" && selected.state !== "ClosedByHuman" ? (
@@ -640,18 +834,18 @@ export default function BoardPage() {
                       className="btn danger"
                       type="button"
                       disabled
-                      title="Handle escalation first"
+                      title={s("Handle escalation first")}
                     >
-                      Request close (handle escalation first)
+                      {s("Request close (handle escalation first)")}
                     </button>
                   ) : (
                     <button className="btn danger" type="button" onClick={() => tryClose(selected.case_id)}>
-                      Request close (2-person if no evidence)
+                      {s("Request close (2-person if no evidence)")}
                     </button>
                   )
                 ) : null}
                 <Link className="btn secondary" href={`/patient/${selected.case_id}?lang=en`}>
-                  Patient view
+                  {s("Patient view")}
                 </Link>
                 <a
                   className="btn secondary"
@@ -659,26 +853,30 @@ export default function BoardPage() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Download evidence pack
+                  {s("Download evidence pack")}
                 </a>
               </div>
               <details style={{ marginTop: "1rem" }}>
-                <summary style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>Why?</summary>
+                <summary style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>{s("Why?")}</summary>
                 <p className="muted">
-                  Illustrative thresholds pending clinician / DoH sign-off. Values are fact / calculated / AI-generated from
-                  timeline kinds — no LLM text for deterministic steps.
+                  {s("Illustrative thresholds pending clinician / DoH sign-off. Values are fact / calculated / AI-generated from timeline kinds — no LLM text for deterministic steps.")}
                 </p>
                 <ul>
                   {(selected.provenance || []).map((p, i) => (
                     <li key={`${p.to}-${i}`}>
                       <strong>
-                        {p.from} → {p.to}
+                        {s(humanizeState(p.from || "—"))} → {s(humanizeState(p.to || "—"))}
                       </strong>{" "}
-                      · {p.reason}
+                      · <span data-src="record">{p.reason}</span>
                       {p.evidence?.rule_id ? (
                         <div className="muted">
-                          rule {String(p.evidence.rule_id)} v{String(p.evidence.rule_version || "—")}
-                          {selected.result_value != null ? ` · input ${selected.result_value}` : ""}
+                          {s("rule")} <span data-src="record">{String(p.evidence.rule_id)} v{String(p.evidence.rule_version || "—")}</span>
+                          {selected.result_value != null ? (
+                            <>
+                              {" "}
+                              · {s("input")} <span data-src="record">{String(selected.result_value)}</span>
+                            </>
+                          ) : null}
                         </div>
                       ) : null}
                     </li>
@@ -686,16 +884,18 @@ export default function BoardPage() {
                 </ul>
                 {selected.options?.length ? (
                   <div>
-                    <strong>Navigator score breakdown</strong>
+                    <strong>{s("Navigator score breakdown")}</strong>
                     <ul>
                       {selected.options.map((o) => (
                         <li key={o.id}>
-                          {o.name}: score {o.score}
-                          {o.in_network ? " · in-network" : ""}
-                          {o.payment ? ` · ${o.payment.mode.replace("_", "-")} (pay AED ${o.payment.patient_upfront_aed ?? "?"})` : ""}
-                          {o.distance_km != null ? ` · ${o.distance_km} km` : ""}
-                          {o.earliest_slot_hours != null ? ` · ${o.earliest_slot_hours}h` : ""}
-                          {o.language_match ? " · language match" : ""}
+                          <span data-src="record">{o.name}</span>: {s("score {n}", { n: L.num(o.score) })}
+                          {o.in_network ? ` · ${s("in-network")}` : ""}
+                          {o.payment
+                            ? ` · ${s(o.payment.mode.replace("_", "-"))} (${s("pay AED {amount}", { amount: L.num(o.payment.patient_upfront_aed ?? 0) })})`
+                            : ""}
+                          {o.distance_km != null ? ` · ${s("{n} km", { n: L.num(o.distance_km) })}` : ""}
+                          {o.earliest_slot_hours != null ? ` · ${s("{n} h", { n: L.num(o.earliest_slot_hours) })}` : ""}
+                          {o.language_match ? ` · ${s("language match")}` : ""}
                         </li>
                       ))}
                     </ul>
@@ -704,9 +904,9 @@ export default function BoardPage() {
               </details>
               <details style={{ marginTop: "0.75rem" }}>
                 <summary style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>
-                  Channel preview (simulated)
+                  {s("Channel preview (simulated)")}
                 </summary>
-                <p className="muted">Simulated SMS / WhatsApp — nothing is sent. No result values over SMS.</p>
+                <p className="muted">{s("Simulated SMS / WhatsApp — nothing is sent. No result values over SMS.")}</p>
                 {(selected.messages || [])
                   .filter((m) => m.channel === "sms" || m.text || m.text_ar)
                   .map((m, i) => (
@@ -722,35 +922,32 @@ export default function BoardPage() {
                       }}
                     >
                       <div className="muted" style={{ fontSize: "0.75rem" }}>
-                        {m.channel || "message"} · simulated
+                        {s(m.channel || "message")} · {s("simulated")}
                       </div>
-                      <p style={{ whiteSpace: "pre-wrap", margin: "0.35rem 0" }}>{m.text}</p>
+                      <p style={{ whiteSpace: "pre-wrap", margin: "0.35rem 0" }} data-src="record" dir="ltr" lang="en">
+                        {m.text}
+                      </p>
                       {m.text_ar ? (
-                        <p style={{ whiteSpace: "pre-wrap", margin: 0 }} dir="rtl">
+                        <p style={{ whiteSpace: "pre-wrap", margin: 0 }} dir="rtl" lang="ar">
                           {m.text_ar}
                         </p>
                       ) : null}
                     </div>
                   ))}
               </details>
-              <h3 style={{ fontFamily: "var(--font-display)", marginTop: "1.4rem" }}>Timeline</h3>
+              <h3 style={{ fontFamily: "var(--font-display)", marginTop: "1.4rem" }}>{s("Timeline")}</h3>
               <p className="muted" style={{ marginTop: 0 }}>
-                Blue = recorded fact · Gold = calculated (templates/rules) · Violet = AI-generated (LLM ran)
+                {s("Blue = recorded fact · Gold = calculated (templates/rules) · Violet = AI-generated (LLM ran)")}
               </p>
               <ul className="timeline">
                 {selected.timeline.map((t, i) => (
                   <li key={`${t.label}-${i}`}>
-                    <span className={`tag ${t.kind}`}>{t.kind}</span> <strong>{t.label}</strong>
+                    <span className={`tag ${t.kind}`}>{s(t.kind)}</span> <strong data-src="record">{t.label}</strong>
                     <div className="muted">
-                      {t.at
-                        ? `${new Date(t.at * 1000).toLocaleString(undefined, {
-                            day: "2-digit",
-                            month: "short",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })} · `
-                        : ""}
-                      {t.detail} · {t.actor}
+                      {t.at ? `${L.date(t.at * 1000)} · ` : ""}
+                      <span data-src="record">
+                        {t.detail} · {t.actor}
+                      </span>
                     </div>
                   </li>
                 ))}

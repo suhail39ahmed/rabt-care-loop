@@ -50,6 +50,14 @@ Open the **[pilot web](https://ca-rabt-web-pilot.salmonwave-97737d51.southeastas
 5. **Admin KPIs** — `/admin`: false closures and critical recall on the synthetic seed (one proof number).
 6. **Insurer agent** — `/insurer`: A2A with Demo Health Insurance (signed, schema-checked).
 7. **API** — OpenAPI at `http://localhost:8000/docs` (`/healthz`, `/demo`, `/cases/{id}`).
+8. **Split screen** — [`/demo/split`](https://ca-rabt-web-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io/demo/split): Ravi's phone on the left and the live coordinator board on the right; press `i` for the insurer inset.
+9. **Senior, easy mode** — [`/patient/case-gc11-senior?lang=ar`](https://ca-rabt-web-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io/patient/case-gc11-senior?lang=ar): Saeed, 68, gets large text, one step per screen, read aloud, *call me instead* and a caregiver helper with consent.
+
+**Patient app:**
+- 7 languages: English, العربية, हिन्दी, اردو, മലയാളം, Filipino, বাংলা. Arabic and Urdu are right-to-left, with an Arabic-digits option. The choice is saved on the device and in the patient profile.
+- An assistant (bottom corner) that answers only from the approved KB, with source chips, a refusal style for unsafe requests, and *talk to a person*.
+- Installable as a PWA.
+- Uploaded claim documents pass a safety gate. Active content or hidden instructions are quarantined and flagged on the board.
 
 | Real in this demo | Mocked / optional / off |
 |---|---|
@@ -60,9 +68,11 @@ Open the **[pilot web](https://ca-rabt-web-pilot.salmonwave-97737d51.southeastas
 | Azure Content Safety + Prompt Shields + Language PII (via Foundry behind APIM) | Fail closed → approved templates |
 | Grounded answers from the approved KB (local BM25; Azure AI Search in Azure), clinician-approved learning loop | Demo Health Insurance is a **synthetic** payer |
 | Signed A2A with a separate insurer agent; strict reply validation | MCP tool servers (prototype — **not** on the demo path) |
-| Live EN↔AR translation (approved phrases; AI with placeholders when on), browser TTS | |
+| Live translation in 7 languages (approved phrases; AI with placeholders when on, labelled "AI-translated"), browser TTS and voice input | |
+| Prompt-injection defence in depth: app rules + Prompt Shields, then the APIM `llm-content-safety` policy at the gateway; document safety gate (quarantine + board flag) | Defender for Storage malware scan (Terraform flag, off by default for cost) |
+| Missed appointments (no-show) reopen booking and queue a coordinator follow-up; unverified insurer replies never promise cashless | |
 
-CI runs on every pull request and on `main`: ruff, pytest (golden cases included), the seeded benchmark, pip-audit, gitleaks, npm audit, the web build, both Docker builds, Terraform checks (fmt, validate, `terraform test`, tflint, checkov) and a Playwright end-to-end story.
+CI runs on every pull request and on `main`: ruff, pytest (golden cases included), the seeded benchmark, pip-audit, gitleaks, npm audit, the web build, both Docker builds, Terraform checks (fmt, validate, `terraform test`, tflint, checkov) and Playwright end-to-end tests (story, chat, easy mode, PWA, document safety, axe accessibility at 390/1440 px, and an i18n audit with per-locale coverage).
 
 Loop overview:
 

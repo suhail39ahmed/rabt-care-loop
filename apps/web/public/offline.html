@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#0e8f9e" />
+<title>Rabt · offline</title>
+<style>
+  body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#f7fafc;color:#0c1b2a}
+  main{max-width:22rem;padding:2rem;text-align:center}
+  img{width:72px;height:72px;border-radius:18px}
+  h1{font-size:1.35rem;margin:1rem 0 .4rem}
+  p{color:#45586a;line-height:1.5;margin:.3rem 0}
+  [lang=ar]{font-family:"Noto Sans Arabic",system-ui,sans-serif}
+  button{margin-top:1.2rem;min-height:48px;padding:0 1.4rem;border:0;border-radius:999px;background:#0e8f9e;color:#fff;font-size:1rem;font-weight:600;cursor:pointer}
+  button:focus-visible{outline:3px solid #143a5a;outline-offset:3px}
+</style>
+</head>
+<body>
+<main>
+  <img src="/icons/icon-192.png" alt="" />
+  <h1>You are offline</h1>
+  <p>Rabt will show your result again when you are back online. In an emergency call 998.</p>
+  <p lang="ar" dir="rtl">أنت غير متصل. ستظهر نتيجتك عند عودة الاتصال. في الطوارئ اتصل بالرقم 998.</p>
+  <button type="button" onclick="location.reload()">Try again · حاول مرة أخرى</button>
+</main>
+</body>
+</html>

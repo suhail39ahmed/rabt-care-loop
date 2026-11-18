@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { STAFF_LOCALES, useLocale } from "@/lib/i18n";
 
 type Pending = { id: string; title: string; language: string; reason?: string; suggested_by?: string; content: string };
 type Kb = { index_version: string; docs: Array<{ id: string; title: string; language: string; topic?: string; clinical_review_status?: string; approved_by?: string | null }> };
@@ -13,6 +14,8 @@ const REVIEWERS = [
 
 /** Clinician-approved learning loop: drafts from coordinators wait here until a physician or supervisor decides. */
 export function KbReview() {
+  const L = useLocale({ allowed: STAFF_LOCALES });
+  const { s } = L;
   const [pending, setPending] = useState<Pending[] | null>(null);
   const [kb, setKb] = useState<Kb | null>(null);
   const [reviewer, setReviewer] = useState(REVIEWERS[0].id);
@@ -30,10 +33,10 @@ export function KbReview() {
         body: JSON.stringify(draft),
       });
       setDraft({ title: "", content: "", language: "en", reason: "" });
-      setMsg("Draft saved for clinician review. Names, phones and IDs were removed.");
+      setMsg(s("Draft saved for clinician review. Names, phones and IDs were removed."));
       await load();
     } catch (e) {
-      setMsg(`Could not save the draft: ${String(e).replace(/^Error:\s*/, "")}`);
+      setMsg(s("Could not save the draft: {reason}", { reason: String(e).replace(/^Error:\s*/, "") }));
     } finally {
       setBusy(null);
     }
@@ -45,7 +48,7 @@ export function KbReview() {
       setPending(p);
       setKb(k);
     } catch {
-      setMsg("Knowledge base unavailable.");
+      setMsg(s("Knowledge base unavailable."));
       setPending([]);
     }
   }, []);
@@ -63,10 +66,10 @@ export function KbReview() {
         headers: { "X-Rabt-Persona": reviewer },
         body: action === "reject" ? JSON.stringify({ reason: "Not accurate enough for patients" }) : undefined,
       });
-      setMsg(action === "approve" ? "Approved and published. Cached answers were cleared." : "Rejected.");
+      setMsg(action === "approve" ? s("Approved and published. Cached answers were cleared.") : s("Rejected."));
       await load();
     } catch (e) {
-      setMsg(`Could not ${action}: ${String(e).replace(/^Error:\s*/, "")}`);
+      setMsg(s("Could not {action}: {reason}", { action: s(action), reason: String(e).replace(/^Error:\s*/, "") }));
     } finally {
       setBusy(null);
     }
@@ -76,14 +79,25 @@ export function KbReview() {
     <div>
       <div className="row-actions" style={{ justifyContent: "space-between", alignItems: "center", marginTop: 0 }}>
         <p className="muted small" style={{ margin: 0 }}>
-          {kb ? `${kb.docs.filter((d) => (d.clinical_review_status ?? "approved") === "approved").length} approved articles · index ${kb.index_version}` : "Loading…"}
+          {kb ? (
+            <>
+              {s("{n} approved articles · index", {
+                n: L.num(kb.docs.filter((d) => (d.clinical_review_status ?? "approved") === "approved").length),
+              })}{" "}
+              <span data-src="record" dir="ltr">
+                {kb.index_version}
+              </span>
+            </>
+          ) : (
+            s("Loading…")
+          )}
         </p>
         <label className="muted small">
-          Reviewing as{" "}
+          {s("Reviewing as")}{" "}
           <select className="field" style={{ width: "auto", padding: "0.3rem 0.5rem" }} value={reviewer} onChange={(e) => setReviewer(e.target.value)}>
             {REVIEWERS.map((r) => (
               <option key={r.id} value={r.id}>
-                {r.label}
+                {s(r.label)}
               </option>
             ))}
           </select>
@@ -92,54 +106,63 @@ export function KbReview() {
       <div aria-live="polite">{msg ? <p className="small">{msg}</p> : null}</div>
       {pending && pending.length === 0 ? (
         <p className="muted">
-          No drafts waiting. When a patient asks something the approved knowledge base cannot answer, the coordinator gets a
-          &quot;kb gap&quot; item and can draft an article here for a clinician to approve.
+          {s(
+            "No drafts waiting. When a patient asks something the approved knowledge base cannot answer, the coordinator gets a \"kb gap\" item and can draft an article here for a clinician to approve."
+          )}
         </p>
       ) : null}
       {(pending || []).map((p) => (
         <article key={p.id} className="choice" style={{ width: "100%", marginBottom: "0.5rem" }}>
           <div className="chip-row">
             <span className="tag role">{p.language.toUpperCase()}</span>
-            {p.suggested_by ? <span className="tag calculated">by {p.suggested_by.replace(/^human:/, "").replace(/-/g, " ")}</span> : null}
+            {p.suggested_by ? <span className="tag calculated">
+                {s("by")} {s(p.suggested_by.replace(/^human:/, "").replace(/-/g, " "))}
+              </span> : null}
           </div>
-          <strong>{p.title}</strong>
-          {p.reason ? <p className="muted small" style={{ margin: "0.25rem 0" }}>{p.reason}</p> : null}
+          <strong data-src="record" dir="auto">
+            {p.title}
+          </strong>
+          {p.reason ? (
+            <p className="muted small" style={{ margin: "0.25rem 0" }} data-src="record" dir="auto">
+              {p.reason}
+            </p>
+          ) : null}
           <details>
-            <summary className="small">Read draft</summary>
-            <p className="small" style={{ whiteSpace: "pre-wrap" }} dir="auto">
+            <summary className="small">{s("Read draft")}</summary>
+            <p className="small" style={{ whiteSpace: "pre-wrap" }} dir="auto" data-src="record">
               {p.content}
             </p>
           </details>
           <div className="row-actions" style={{ justifyContent: "flex-start" }}>
             <button type="button" className="btn btn-sm" disabled={busy === p.id} onClick={() => decide(p.id, "approve")}>
-              Approve and publish
+              {s("Approve and publish")}
             </button>
             <button type="button" className="btn secondary btn-sm" disabled={busy === p.id} onClick={() => decide(p.id, "reject")}>
-              Reject
+              {s("Reject")}
             </button>
           </div>
         </article>
       ))}
       <details className="draft">
-        <summary className="small">Draft an article (coordinator)</summary>
+        <summary className="small">{s("Draft an article (coordinator)")}</summary>
         <div style={{ display: "grid", gap: "0.5rem", marginTop: "0.5rem" }}>
           <label className="small">
-            Title
+            {s("Title")}
             <input className="field" value={draft.title} maxLength={120} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
           </label>
           <label className="small">
-            Language
+            {s("Language")}
             <select className="field" value={draft.language} onChange={(e) => setDraft({ ...draft, language: e.target.value })}>
-              <option value="en">English</option>
-              <option value="ar">Arabic</option>
+              <option value="en">{s("English")}</option>
+              <option value="ar">{s("Arabic")}</option>
             </select>
           </label>
           <label className="small">
-            Article (plain language, no diagnosis)
+            {s("Article (plain language, no diagnosis)")}
             <textarea className="field" rows={4} dir="auto" value={draft.content} maxLength={6000} onChange={(e) => setDraft({ ...draft, content: e.target.value })} />
           </label>
           <label className="small">
-            Why is it needed?
+            {s("Why is it needed?")}
             <input className="field" value={draft.reason} maxLength={300} onChange={(e) => setDraft({ ...draft, reason: e.target.value })} />
           </label>
           <div className="row-actions" style={{ justifyContent: "flex-start" }}>
@@ -149,7 +172,7 @@ export function KbReview() {
               disabled={busy === "draft" || draft.title.trim().length < 3 || draft.content.trim().length < 20}
               onClick={() => suggest()}
             >
-              Send for review
+              {s("Send for review")}
             </button>
           </div>
         </div>

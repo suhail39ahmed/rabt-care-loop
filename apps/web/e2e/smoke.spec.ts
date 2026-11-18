@@ -21,7 +21,7 @@ test("board live translation uses the approved glossary", async ({ page }) => {
   await page.goto("/board?focus=case-gc01-fatima");
   await expect(page.getByRole("heading", { name: "Live translation" })).toBeVisible({ timeout: 30000 });
   await page.getByRole("button", { name: "Translate" }).click();
-  await expect(page.getByText("Approved phrase")).toBeVisible();
+  await expect(page.getByText("Approved phrase", { exact: true }).first()).toBeVisible();
 });
 
 test("patient asks the approved knowledge base and sees sources", async ({ page }) => {

@@ -29,7 +29,7 @@ async def test_seed_demo_ids_are_stable():
     assert ids_runs[0]["gc01_fatima_hba1c"] == "case-gc01-fatima"
     assert ids_runs[0]["gc02_critical_bp"] == "case-gc02-bp"
     assert ids_runs[0]["gc03_owner"] == "case-gc03-owner"
-    assert len(ids_runs[0]) == 7
+    assert len(ids_runs[0]) == 8
 
 
 @pytest.mark.asyncio

@@ -493,6 +493,27 @@ variable "llm_router_escalate_chars" {
   default     = 6000
 }
 
+variable "llm_router_mode" {
+  description = <<-EOT
+    python (default): the app's router picks chat-small or chat-strong per task.
+    azure: chat calls go to the Azure OpenAI model router deployment (llm_model_router_deployment), with the
+    python choice as failover. Model router is only sold as GlobalStandard / DataZoneStandard, so prompts may be
+    processed outside the deployment region; keep python where data residency matters.
+  EOT
+  type        = string
+  default     = "python"
+  validation {
+    condition     = contains(["python", "azure"], var.llm_router_mode)
+    error_message = "llm_router_mode must be python or azure."
+  }
+}
+
+variable "llm_model_router_deployment" {
+  description = "Deployment name of the Azure OpenAI model router, used only when llm_router_mode = azure."
+  type        = string
+  default     = "model-router"
+}
+
 variable "enable_insurer_demo" {
   description = "Deploy the synthetic demo insurer as its own A2A agent (ca-<workload>-insurer-<env>), called over signed HTTP."
   type        = bool
@@ -509,4 +530,16 @@ variable "kb_ingest_cron" {
   description = "Schedule (UTC cron) for the KB ingestion job. Unchanged docs are skipped, so hourly runs are cheap."
   type        = string
   default     = "15 * * * *"
+}
+
+variable "enable_gateway_content_safety" {
+  description = "Second prompt-injection layer: APIM llm-content-safety policy (Prompt Shields + Hate/Sexual/SelfHarm/Violence) on the OpenAI API."
+  type        = bool
+  default     = true
+}
+
+variable "enable_storage_malware_scan" {
+  description = "Defender for Storage malware scanning on the KB/uploads account. Off by default (per-GB cost); the app-level document safety gate always runs."
+  type        = bool
+  default     = false
 }

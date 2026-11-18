@@ -77,8 +77,30 @@ def index_schema(name: str = DEFAULT_INDEX) -> dict[str, Any]:
     }
 
 
+QUARANTINED: dict[str, list[str]] = {}
+
+
+def pdf_source(name: str, data: bytes) -> str | None:
+    """Run a PDF through the document safety gate. Accepted PDFs become a *pending* KB doc (a clinician must
+    approve before it is indexed); quarantined PDFs are recorded in QUARANTINED and never indexed."""
+    from agents.docsafety.pipeline import check
+
+    verdict, _ = check(data, name, purpose="kb")
+    if verdict.status != "accepted":
+        QUARANTINED[Path(name).stem] = verdict.flags
+        return None
+    title = Path(name).stem.replace("_", " ")
+    return (f"---\ntitle: {title}\nlanguage: en\ntopic: uploaded\nclinical_review_status: pending\n"
+            f"source: '{name} - document safety accepted, sha256 {verdict.sha256[:16]}'\n---\n\n{verdict.text}\n")
+
+
 def build_rows(sources: dict[str, str], *, max_tokens: int = 320, overlap_tokens: int = 48) -> tuple[list[dict[str, Any]], list[str]]:
-    """Index rows (no vectors) for approved docs, plus the ids of docs skipped as not approved."""
+    """Index rows (no vectors) for approved docs, plus the ids of docs skipped as not approved.
+
+    Approved docs are also checked for planted instructions (indirect prompt injection); a hit quarantines the
+    doc (recorded in QUARANTINED) instead of indexing it."""
+    from agents.common.injection import deny_listed
+
     rows: list[dict[str, Any]] = []
     skipped: list[str] = []
     for name, text in sorted(sources.items()):
@@ -86,6 +108,9 @@ def build_rows(sources: dict[str, str], *, max_tokens: int = 320, overlap_tokens
         doc = parse_doc(text, stem)
         if not doc["approved"]:
             skipped.append(stem)
+            continue
+        if deny_listed(doc["body"]) or deny_listed(doc["title"]):
+            QUARANTINED[stem] = ["injection"]
             continue
         h = content_hash(text)
         for i, c in enumerate(chunk_document(doc["body"], title=doc["title"], max_tokens=max_tokens,
@@ -283,6 +308,7 @@ def sync(sources: dict[str, str], store: Store, embed: Embedder, *, index: str =
         "documents": len(sources),
         "approved_documents": len({r["doc_id"] for r in rows}),
         "skipped_not_approved": skipped,
+        "quarantined": dict(sorted(QUARANTINED.items())),
         "documents_by_language": dict(sorted(langs.items())),
         "chunks": len(rows),
         "uploaded": len(upload),

@@ -214,7 +214,31 @@ async def seed_demo(ledger: Ledger, coordinator: Coordinator) -> dict[str, str]:
             cov["preauth_status"] = "approved"
             evidence["coverage"] = cov
             await ledger.update_case(db, c10["case_id"], evidence=evidence)
-        await coordinator.book(db, c10["case_id"], opts[0]["id"])
+        try:
+            await coordinator.book(db, c10["case_id"], opts[0]["id"])
+        except ValueError as exc:
+            # A forced insurer demo scenario (denied, out-of-network) must not break Reset demo.
+            await ledger.append_timeline(
+                db, c10["case_id"], kind="fact", label="Seed booking skipped", detail=str(exc)[:120],
+                actor="system:seed",
+            )
+
+    # GC-11 — senior / assisted path: Saeed, 68, positive FIT, Arabic, phone-first outreach
+    saeed = DEMO_PATIENTS["saeed"]
+    c11 = await coordinator.open_from_observation(
+        db,
+        {
+            "case_id": "case-gc11-senior",
+            "idempotency_key": "demo/GC-11",
+            "patient_id": saeed["id"],
+            "patient": saeed,
+            "plan_id": saeed["plan_id"],
+            "observation": obs_fit_positive(saeed["id"], "obs-gc11"),
+        },
+    )
+    ids["gc11_senior"] = c11["case_id"]
+    await coordinator.accept_ownership(db, c11["case_id"], "human:gp-aisha")
+    await coordinator.notify_patient(db, c11["case_id"])
 
     await db.close()
     return ids

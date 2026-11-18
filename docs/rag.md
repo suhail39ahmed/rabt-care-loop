@@ -163,3 +163,7 @@ Offline results (local BM25, AI off):
 The eval set was written alongside the docs, so these numbers are an optimistic regression baseline, not a measure of real-world quality. `services/orchestrator/tests/test_kb_pipeline.py` runs the same evaluation in CI (hit@3 ≥ 0.9, hit@1 ≥ 0.8, all escalations pass, no drafts).
 
 Arabic retrieval uses light normalisation (alef and ta-marbuta forms, clitic prefixes such as `ال` / `و` / `ب`, and pronoun suffixes). Without it, Arabic hit@3 was 0.79.
+
+## Incremental indexing: push pipeline, not an indexer
+
+Ingestion (`caj-rabt-ingest-pilot`, hourly) is a **push** pipeline with change and delete tracking: every chunk carries its document's content hash, unchanged documents are skipped (no embedding cost), changed or demoted (no longer approved) documents have their old chunks deleted and new ones uploaded, and removed documents are deleted from the index. We deliberately do not use an AI Search blob indexer + skillset here, because three gates must run **before** anything is indexed and an indexer cannot enforce them: clinician approval (front matter), the document safety gate (`docs/document-safety.md`) and the planted-instruction check. Quarantined documents are listed in the ingest report under `quarantined`.

@@ -9,6 +9,15 @@ Rules (in order):
   4. Failover: if the chosen deployment fails after the gateway's own retries, the call is retried once
      on the other tier. The APIM backend pool additionally fails over between Azure OpenAI accounts.
 Deployments come from LLM_MODEL_SMALL / LLM_MODEL_STRONG (Terraform sets chat-small / chat-strong).
+
+Router mode (LLM_ROUTER_MODE):
+  python (default) -> the rules above pick small or strong per task.
+  azure            -> every chat task goes to the Azure OpenAI model router deployment
+                      (LLM_MODEL_ROUTER, default `model-router`), which picks the model per prompt.
+                      Per-task max_tokens and input caps still apply, and the Python choice is the
+                      failover if the router deployment errors. Note: model router is only offered as
+                      GlobalStandard / DataZoneStandard, so prompts may be processed outside the
+                      deployment region; keep `python` where data residency matters.
 """
 
 from __future__ import annotations
@@ -57,6 +66,15 @@ def deployment_for(tier: str) -> str:
     return strong if tier == "strong" else small
 
 
+def router_mode() -> str:
+    mode = (os.environ.get("LLM_ROUTER_MODE") or "python").strip().lower()
+    return mode if mode in ("python", "azure") else "python"
+
+
+def router_deployment() -> str:
+    return (os.environ.get("LLM_MODEL_ROUTER") or "model-router").strip()
+
+
 def route(task: str, input_chars: int = 0) -> RouteDecision:
     p = POLICY.get(task, DEFAULT)
     tier, reason = p.tier, "policy"
@@ -66,6 +84,9 @@ def route(task: str, input_chars: int = 0) -> RouteDecision:
     model = deployment_for(tier)
     other = deployment_for("small" if tier == "strong" else "strong")
     fallback = other if p.failover and other and other != model else None
+    if router_mode() == "azure":
+        # Azure model router picks the model; the Python choice is the failover.
+        tier, reason, fallback, model = "router", "azure_model_router", model or None, router_deployment()
     log.info("route task=%s tier=%s model=%s reason=%s", task, tier, model, reason)
     return RouteDecision(task, tier, model, fallback, p.max_tokens, p.max_input_chars, p.cacheable, reason)
 

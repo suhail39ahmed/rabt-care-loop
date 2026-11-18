@@ -37,7 +37,12 @@ OFFLINE_INDEX = ROOT / ".kb-index"
 
 def local_sources(kb: Path | None = None) -> dict[str, str]:
     kb = kb or Path(os.environ.get("KB_DIR") or ROOT / "data" / "kb")
-    return {p.name: p.read_text(encoding="utf-8") for p in sorted(kb.glob("*.md"))}
+    out = {p.name: p.read_text(encoding="utf-8") for p in sorted(kb.glob("*.md"))}
+    for p in sorted(kb.glob("*.pdf")):  # PDFs pass the document safety gate and land as pending
+        md = pipeline.pdf_source(p.name, p.read_bytes())
+        if md:
+            out[p.stem + ".md"] = md
+    return out
 
 
 def build_docs(sources: dict[str, str]) -> list[dict]:
@@ -62,6 +67,10 @@ def blob_sources(container_url: str) -> dict[str, str]:
     for n in names:
         if n and n.endswith(".md") and not n.startswith("_"):
             out[n] = httpx.get(f"{container_url}/{n}", headers=h, timeout=30).text
+        elif n and n.lower().endswith(".pdf") and not n.startswith("_"):
+            md = pipeline.pdf_source(n, httpx.get(f"{container_url}/{n}", headers=h, timeout=60).content)
+            if md:
+                out[n.rsplit(".", 1)[0] + ".md"] = md
     return out
 
 

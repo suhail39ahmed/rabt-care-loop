@@ -235,6 +235,34 @@ resource "azurerm_api_management_backend" "content_safety" {
   }
 }
 
+# Second injection layer: backend for the gateway's llm-content-safety policy on the OpenAI API.
+# The policy needs the account root URL and backend-level managed identity credentials (audience
+# https://cognitiveservices.azure.com); azurerm has no MI credentials on backends, so this uses azapi.
+resource "azapi_resource" "content_safety_gateway" {
+  count                     = var.enable_content_safety && var.enable_gateway_content_safety ? 1 : 0
+  type                      = "Microsoft.ApiManagement/service/backends@2024-05-01"
+  name                      = "content-safety-gateway"
+  parent_id                 = azurerm_api_management.main.id
+  schema_validation_enabled = false
+
+  body = {
+    properties = {
+      description = "Azure AI Content Safety for the llm-content-safety policy (APIM managed identity)"
+      protocol    = "http"
+      url         = trimsuffix(var.content_safety_endpoint, "/")
+      credentials = {
+        managedIdentity = {
+          resource = "https://cognitiveservices.azure.com"
+        }
+      }
+      tls = {
+        validateCertificateChain = true
+        validateCertificateName  = true
+      }
+    }
+  }
+}
+
 resource "azurerm_api_management_backend" "language" {
   #checkov:skip=CKV_AZURE_215:protocol "http" is the APIM REST-backend type; the url is https and TLS validation is on
   count               = var.enable_language ? 1 : 0
@@ -323,12 +351,16 @@ resource "azurerm_api_management_api_policy" "openai" {
     embeddings_backend_id = var.enable_semantic_cache ? azurerm_api_management_backend.embeddings[0].name : ""
     cache_score_threshold = var.semantic_cache_score_threshold
     cache_ttl_seconds     = var.semantic_cache_ttl_seconds
+    gateway_safety        = var.enable_content_safety && var.enable_gateway_content_safety
+    gateway_safety_id     = var.enable_content_safety && var.enable_gateway_content_safety ? azapi_resource.content_safety_gateway[0].name : ""
+    gateway_safety_level  = var.gateway_content_safety_threshold
   })
 
   depends_on = [
     azurerm_api_management_redis_cache.semantic,
     azurerm_api_management_api_operation.openai,
     azapi_resource.openai_pool,
+    azapi_resource.content_safety_gateway,
     azurerm_api_management_backend.openai,
     azurerm_api_management_policy_fragment.traffic_inbound,
     azurerm_api_management_policy_fragment.traffic_outbound,

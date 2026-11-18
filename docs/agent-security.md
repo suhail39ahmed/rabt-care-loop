@@ -38,3 +38,14 @@ INSURER_A2A_URL=http://localhost:8101 PYTHONPATH=services/orchestrator:services:
 
 - **Listen (TTS):** the browser's own speech synthesis (`speechSynthesis`, `ar-AE` / `en-US`). Text never leaves the device, and there is no cloud TTS.
 - **Live translation (board):** approved EN↔AR phrases are instant. Anything else goes to the small model with names, phones and IDs replaced by placeholders, which are put back after the reply passes the checks. Output is labelled **AI-translated**. With AI off, nothing is invented and the coordinator uses an interpreter.
+
+## Prompt injection: defence in depth
+
+| Layer | Where | What it checks | On failure |
+|---|---|---|---|
+| 1a. Deny-list | `agents/common/injection.py`, run first in `rag/answer.py` and in the LLM client | Patient text **and** every retrieved KB chunk: "ignore … instructions", "system prompt", "you are now", script tags, exfiltration, Arabic equivalents | Fixed refusal in the patient's language + "talk to a person"; counted as `injection_blocks` |
+| 1b. Prompt Shields (app) | `agents/common/content_safety.py`, called through APIM `/contentsafety` before any model call | `userPrompt` = patient text, `documents` = retrieved chunks (indirect injection) | **Fail closed**: if the service errors, no model call, approved template instead; `prompt_shield_blocks` |
+| 2. Gateway policy | APIM OpenAI API: `llm-content-safety` with `shield-prompt="true"`, Hate / Sexual / SelfHarm / Violence ≥ 4 (EightSeverityLevels) — `infra/terraform/modules/apim/policies/openai-api.xml.tftpl` | Every prompt that reaches Azure OpenAI, whoever sends it (the app, a script, a leaked key) | 403 from the gateway; the app does not retry on the other model and counts `gateway_safety_blocks` |
+| 3. Output checks | `_valid_llm_answer` | Answer must cite a source, use only numbers found in the sources, pass the no-diagnosis lexicon and Content Safety | Extractive approved paragraph instead |
+
+The gateway layer uses its own backend `content-safety-gateway` (Foundry account root URL, APIM managed identity with audience `https://cognitiveservices.azure.com`; Terraform `enable_gateway_content_safety`, default on). The offline benchmark (`benchmark/safety/`, 10 attacks incl. 3 indirect, 4 benign controls) runs in CI; `/benchmark/safety` and the admin page show it next to the live counters.

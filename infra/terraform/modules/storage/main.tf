@@ -50,3 +50,23 @@ resource "azurerm_storage_container" "kb" {
   storage_account_id    = azurerm_storage_account.this.id
   container_access_type = "private"
 }
+
+# Patient uploads and anything the document safety gate rejects (never indexed, never sent to a model).
+resource "azurerm_storage_container" "extra" {
+  #checkov:skip=CKV2_AZURE_21:blob logs go to Log Analytics via the diagnostic setting on blobServices/default
+  for_each              = toset(var.extra_containers)
+  name                  = each.value
+  storage_account_id    = azurerm_storage_account.this.id
+  container_access_type = "private"
+}
+
+# Defender for Storage malware scanning on upload. Billed per GB scanned, so off by default; the app's own gate
+# (EICAR signature + optional ClamAV via CLAMAV_HOST) always runs.
+resource "azurerm_security_center_storage_defender" "this" {
+  count                                       = var.enable_malware_scan ? 1 : 0
+  storage_account_id                          = azurerm_storage_account.this.id
+  override_subscription_settings_enabled      = true
+  malware_scanning_on_upload_enabled          = true
+  malware_scanning_on_upload_cap_gb_per_month = var.malware_scan_cap_gb_per_month
+  sensitive_data_discovery_enabled            = false
+}

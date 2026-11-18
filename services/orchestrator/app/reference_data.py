@@ -127,6 +127,18 @@ PLANS = {
 }
 
 DEMO_PATIENTS = {
+    "saeed": {
+        "id": "pat-saeed",
+        "name": "Saeed (synthetic)",
+        "name_ar": "سعيد",
+        "language": "ar",
+        "age": 68,
+        "sex": "male",
+        "plan_id": "plan-b",
+        "generalPractitioner": [
+            {"reference": "Practitioner/gp-aisha", "display": "Dr Aisha (Family Physician)"}
+        ],
+    },
     "fatima": {
         "id": "pat-fatima",
         "name": "Fatima (synthetic)",

@@ -29,6 +29,17 @@ Every model call goes through one path: `services/agents/common/llm_client.py` (
 - Small tasks move to the strong tier when their input exceeds `LLM_ROUTER_ESCALATE_CHARS` (default 6000).
 - Crisis detection never uses a model.
 
+### Router mode: Python rules or Azure model router
+
+`LLM_ROUTER_MODE` (Terraform `llm_router_mode`) switches who picks the model:
+
+| Mode | What happens | When to use |
+|---|---|---|
+| `python` (default) | The table above: small first, strong only for grounded RAG answers or long inputs. Easy to explain and test. | Pilot and demo. Keeps every prompt in the regional deployments. |
+| `azure` | Chat calls go to the Azure OpenAI **model router** deployment (`LLM_MODEL_ROUTER`, default `model-router`), which picks a model per prompt. Per-task `max_tokens` and input caps still apply, and the Python choice is the failover if the router errors. | Cost experiments once residency is cleared. |
+
+Model router is only offered as **GlobalStandard / DataZoneStandard**, so prompts may be processed outside Australia East. Create the deployment first (`az cognitiveservices account deployment create ... --model-name model-router --sku-name GlobalStandard`), then set `llm_router_mode = "azure"`. `/ai/metrics` shows the active mode under `router.mode`.
+
 ## Foundry hub
 
 Microsoft Foundry (`docs/foundry-ai.md`) is the **sole AI backend** behind APIM. App Insights is connected to the Foundry account; the project registers APIM as the AI gateway. Quotas and body-safe logging stay on **APIM**.

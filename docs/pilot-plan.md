@@ -1,9 +1,11 @@
 # Pilot plan — 12 weeks (#65, refreshed #146)
 
-**NOW (demo):** synthetic care loop on the live site — FIT cashless book + coordinator board.  
+**NOW (demo):** synthetic care loop on the **Azure pilot** — FIT cashless book + coordinator board + AI via APIM → Foundry.  
+Web: https://ca-rabt-web-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io · API: https://ca-rabt-api-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io  
+
 **NEXT (ask):** **one Abu Dhabi screening programme + one insurer**, one clinic / one pathway (illustrative: FIT or HbA1c follow-up). Not a national scale story.
 
-**Safety path:** deterministic rules + HITL; LLM optional and kill-switched. **No training on user data** — synthetic demo + clinician-approved KB only.
+**Safety path:** deterministic rules + HITL; LLM on the pilot (`AI_ENABLED=true`) still cannot triage / escalate / close. Kill switch remains available. **No training on user data** — synthetic demo + clinician-approved KB only.
 
 **Stress-test homework (Stephan):** score use / build safely / lasts 1–5; lowest score is the pilot focus (today: path-to-partner + safe AI ops).
 

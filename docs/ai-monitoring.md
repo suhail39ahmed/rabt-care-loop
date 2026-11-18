@@ -6,7 +6,7 @@ Every model call goes through one path: `services/agents/common/llm_client.py` (
 
 | Step | Where | Notes |
 |---|---|---|
-| Kill switch | `llm_client.ai_enabled()` | `AI_ENABLED=false` (Terraform `ai_enabled`): no call, approved templates only. Counted as `kill_switch_skips`. |
+| Kill switch | `llm_client.ai_enabled()` | Env `AI_ENABLED` / Terraform `ai_enabled`. Pilot is **`true`**. When false: no call, approved templates only. Counted as `kill_switch_skips`. |
 | PII scrub | `agents/common/pii.py`, `language_pii.py` | Regex always, on system, user and source text. Then Azure AI Language PII when `LANGUAGE_PII_ENABLED` (Terraform `enable_language_pii`). If Language fails, the call is skipped and counted as `pii_fail_closed`; `language_pii_errors` and `language_pii_calls` are also tracked. |
 | Prompt Shields | `agents/common/injection.py`, `content_safety.py` | For untrusted input (`rag_answer`, `classify_concern`, `translate`): deny-list, then Prompt Shields through APIM. Fails closed. |
 | Prompt registry | `agents/common/prompts.py`, `data/prompts/*.yaml` | Only `reviewed: true` prompts are used; `id@version#sha` is sent as `x-rabt-prompt`. |
@@ -14,7 +14,7 @@ Every model call goes through one path: `services/agents/common/llm_client.py` (
 | Compression | `llm_router.compress()` | Collapses whitespace, drops repeated lines, trims at a sentence boundary. |
 | Budget | `agents/common/ai_metrics.py` | `LLM_DAILY_TOKEN_BUDGET` (Terraform `llm_daily_token_budget`). Calls are refused before sending once it is used up. |
 | Gateway | APIM | `azure-openai-token-limit` (`apim_tokens_per_minute`), token metrics by task/deployment, retries on 429/5xx, backend pool with circuit breaker. |
-| Semantic cache | APIM + Redis | Only for requests marked `x-rabt-cacheable: true` (RAG answers). It is scoped by `x-rabt-cache-scope` (language and index version), so answers never mix across languages or KB versions. APIM returns `x-rabt-cache: hit` or `miss` and emits `SemanticCacheRequests{Result,Task}`. |
+| Semantic cache | APIM + Redis (`redis-rabt-pilot-aue`, cache name `semantic-cache`) | Only for requests marked `x-rabt-cacheable: true` (RAG answers). Scoped by `x-rabt-cache-scope`. Score threshold **0.15**, TTL **7 days**. APIM returns `x-rabt-cache: hit` / `miss` / `none` and emits `SemanticCacheRequests{Result,Task}`. |
 | Output checks | callers | Number grounding, no-diagnosis lexicon, Content Safety `text:analyze` (fails closed). |
 
 ## Router table
@@ -35,6 +35,7 @@ Microsoft Foundry (`docs/foundry-ai.md`) is the **sole AI backend** behind APIM.
 
 ## Where to see it
 
+- **Pilot API:** https://ca-rabt-api-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io/ai/metrics · `/healthz` for `ai_enabled` / `llm` / `content_safety`
 - **API:** `GET /ai/metrics`, also shown on the admin page. It reports, per replica:
   - calls and tokens per deployment;
   - cache hit/miss counts and hit rate;

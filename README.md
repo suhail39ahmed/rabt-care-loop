@@ -11,11 +11,35 @@
 |---|---|
 | Demo video | https://youtu.be/Qe9OF5uIzyg |
 | Repo | https://github.com/suhail39ahmed/rabt-care-loop |
-| Azure deployment | Terraform modules in [`infra/terraform`](infra/terraform) + GitHub Actions ([Deploy / hosting](#deploy--hosting)) |
+| **Pilot web (Azure)** | https://ca-rabt-web-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io |
+| **Pilot API** | https://ca-rabt-api-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io · [`/healthz`](https://ca-rabt-api-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io/healthz) · [`/docs`](https://ca-rabt-api-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io/docs) |
+| Azure IaC | Terraform in [`infra/terraform`](infra/terraform) + GitHub Actions ([Deploy / hosting](#deploy--hosting)) |
+
+## Pilot on Azure (live)
+
+Guest demo — no login. Board writes use the persona switcher (`X-Rabt-Persona`). AI is **on** (`AI_ENABLED=true`): Comms / RAG / translate go through the APIM AI gateway to Foundry.
+
+| Component | Name | URL / notes |
+|---|---|---|
+| Web (Next.js) | `ca-rabt-web-pilot` | https://ca-rabt-web-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io |
+| API (FastAPI) | `ca-rabt-api-pilot` | https://ca-rabt-api-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io |
+| Demo insurer (A2A) | `ca-rabt-insurer-pilot` | https://ca-rabt-insurer-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io (scales to zero when idle) |
+| APIM AI gateway | `apim-rabt-pilot-sea` | https://apim-rabt-pilot-sea.azure-api.net — APIs: `/openai`, `/contentsafety`, `/language`, `/search`, `/insurer` |
+| Foundry (AIServices) | `aif-rabt-pilot-aue` · project `rabt-pilot` | Australia East — OpenAI + Content Safety + Language behind APIM (no standalone CS account) |
+| Semantic cache | `redis-rabt-pilot-aue` + APIM cache `semantic-cache` | Opt-in via `x-rabt-cacheable: true`; score threshold `0.15`; TTL **7 days** |
+| AI Search KB | `srch-rabt-pilot-sea` | Hybrid + semantic ranker |
+| App Insights | `appi-rabt-pilot-sea` | API + APIM + Foundry diagnostics (no body logs) |
+| Resource group | `rg-rabt-pilot-sea` | Primary region Southeast Asia; Foundry + Redis in Australia East |
+
+Architecture (Azure pilot):
+
+![Azure pilot architecture](docs/assets/architecture-pilot.png)
+
+More: [docs/foundry-ai.md](docs/foundry-ai.md) · [docs/ai-monitoring.md](docs/ai-monitoring.md) · [infra/terraform/README.md](infra/terraform/README.md)
 
 ## Try it in 90 seconds
 
-Start the API and web locally ([Quick start](#quick-start): `make api` and `make web`, or `.\scripts\dev-api.ps1` / `.\scripts\dev-web.ps1`), or open the Azure web URL from the latest **deploy** workflow run. No login. Guest reads are open. Board writes use the persona switcher (`X-Rabt-Persona`). **Reset demo** on `/board` restores the seed.
+Open the **[pilot web](https://ca-rabt-web-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io)** above, or run locally ([Quick start](#quick-start): `make api` / `make web`, or `.\scripts\dev-api.ps1` / `.\scripts\dev-web.ps1`). No login. Guest reads are open. Board writes use the persona switcher (`X-Rabt-Persona`). **Reset demo** on `/board` restores the seed.
 
 **Wow path (pitch hero):** Ravi’s abnormal FIT → cashless network option → one-tap book → same case on the coordinator board.
 
@@ -30,15 +54,19 @@ Start the API and web locally ([Quick start](#quick-start): `make api` and `make
 | Real in this demo | Mocked / optional / off |
 |---|---|
 | FHIR-shaped Observation intake (local/SQLite) | Malaffi HIE and Sehatna patient app |
-| Deterministic triage, navigator, closure, HITL board | Azure OpenAI via the APIM AI gateway (wired; `AI_ENABLED` kill switch, **off** until switched on) |
-| Lexicon / no-diagnosis guardrails, regex PII scrubbing before any model call | Azure Content Safety + Prompt Shields; Azure AI Language PII layered after the regex (fails closed) |
+| Deterministic triage, navigator, closure, HITL board | — |
+| Azure OpenAI via APIM AI gateway (`AI_ENABLED=true` on the pilot) | Kill switch can turn LLM paths back to templates |
+| Lexicon / no-diagnosis guardrails, regex PII scrubbing before any model call | — |
+| Azure Content Safety + Prompt Shields + Language PII (via Foundry behind APIM) | Fail closed → approved templates |
 | Grounded answers from the approved KB (local BM25; Azure AI Search in Azure), clinician-approved learning loop | Demo Health Insurance is a **synthetic** payer |
 | Signed A2A with a separate insurer agent; strict reply validation | MCP tool servers (prototype — **not** on the demo path) |
 | Live EN↔AR translation (approved phrases; AI with placeholders when on), browser TTS | |
 
 CI runs on every pull request and on `main`: ruff, pytest (golden cases included), the seeded benchmark, pip-audit, gitleaks, npm audit, the web build, both Docker builds, Terraform checks (fmt, validate, `terraform test`, tflint, checkov) and a Playwright end-to-end story.
 
-Loop overview (as-built):
+Loop overview:
+
+![Azure pilot architecture](docs/assets/architecture-pilot.png)
 
 ![As-built care loop](docs/assets/architecture-asbuilt.png)
 
@@ -112,7 +140,7 @@ The **Coordinator** (`services/orchestrator/app/coordinator.py`) is the supervis
 | E-consult | `services/agents/econsult/` | Deterministic packet | Referral / e-consult summary |
 | Closure Verifier | `services/agents/closure/` | Deterministic | Evidence gate before any closure |
 
-**Where the LLM is (and isn't).** Triage, escalation, navigation scoring and closure never use an LLM. The Comms agent can optionally rewrite an approved template through a provider-agnostic LLM client (on Azure: Azure OpenAI behind the APIM AI gateway) when `AI_ENABLED=true` and an LLM is configured. The output must pass the no-diagnosis lexicon and Content Safety, otherwise the approved template is sent unchanged. **The local demo runs with templates only and needs no cloud account.**
+**Where the LLM is (and isn't).** Triage, escalation, navigation scoring and closure never use an LLM. On the Azure pilot, Comms / RAG / translate use a provider-agnostic LLM client through **APIM → Foundry** (`AI_ENABLED=true`). Output must pass the no-diagnosis lexicon and Content Safety; otherwise the approved template is sent. **Local demo defaults to templates only** (`AI_ENABLED=false` in `.env.example`) and needs no cloud account.
 
 ## Human-in-the-loop gates
 
@@ -166,12 +194,12 @@ All benchmark numbers are **simulated on synthetic data**, not real-world outcom
 | Case ledger | SQLite (aiosqlite) | PostgreSQL Flexible Server |
 | Web | Next.js 16, React 19, TypeScript; Arabic RTL | Azure Container Apps |
 | Rules / templates / KB | YAML rules, YAML AR/EN templates, Markdown KB | Clinician-approved versions |
-| LLM (optional) | Provider-agnostic client, AI kill switch (off by default) | Azure OpenAI via APIM AI gateway (token limits, failover, no body logging) |
-| Safety | Lexicon always on; Azure AI Content Safety optional (off in live demo) | See `/healthz` flags |
-| Tools | MCP Python SDK server stubs | Scoped MCP tools over AHDS FHIR |
+| LLM | Provider-agnostic client + `AI_ENABLED` kill switch | Azure pilot: **on** via APIM → Foundry (TPM limits, failover, semantic cache, no body logging) |
+| Safety | Lexicon always on; Content Safety + Language PII via Foundry/APIM on Azure | See `/healthz` (`content_safety`, `ai_enabled`, `llm`) |
+| Tools | MCP Python SDK server stubs | Scoped MCP tools over AHDS FHIR (not on demo path); insurer uses **signed A2A** |
 | Local mocks | Docker Compose: HAPI FHIR R4, PostgreSQL, Mailpit, Jaeger | Azure Health Data Services, ACS, App Insights |
 | Tests / CI | pytest, pytest-asyncio, Hypothesis; GitHub Actions | + lint, web build, security scans |
-| Packaging / IaC | uv (`uv.lock`), npm, Docker | Terraform modules (`infra/terraform`), GitHub Actions with a service principal (`infra.yml`, `deploy.yml`) |
+| Packaging / IaC | uv (`uv.lock`), npm, Docker | Terraform modules (`infra/terraform`), GitHub Actions (`infra.yml`, `deploy.yml`) |
 
 ## Repository structure
 
@@ -192,7 +220,7 @@ All benchmark numbers are **simulated on synthetic data**, not real-world outcom
 ├── tests/golden/                # golden case tests
 ├── tests/safety/                # guardrail tests
 ├── docs/                        # architecture, HITL playbook, responsible AI, threat model, pilot plan, assets
-├── infra/terraform/             # Azure IaC: thin root + modules/ (network, apim, openai, search, container_apps, ...)
+├── infra/terraform/             # Azure IaC: thin root + modules/ (network, apim, foundry, search, redis, container_apps, ...)
 ├── .github/workflows/           # ci.yml, infra.yml (plan / apply), deploy.yml (images → Container Apps)
 ├── docker-compose.yml           # optional local mocks
 ├── scripts/dev-api.ps1, dev-web.ps1
@@ -241,7 +269,7 @@ The API rebuilds a fresh demo database (`data/rabt.db`) on every start, so guest
 
 ## Demo walkthrough
 
-Open http://localhost:3000 (or the Azure web URL). Guest mode — no login. Writes need the board persona header (`X-Rabt-Persona`).
+Open the [pilot web](https://ca-rabt-web-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io) or http://localhost:3000. Guest mode — no login. Writes need the board persona header (`X-Rabt-Persona`).
 
 1. **Ravi, FIT (English) — wow** → `/patient/case-gc05-fit?lang=en`: teach-back → **cashless** option first → one-tap book → confirm case on `/board`.
 2. **Fatima, patient (Arabic)** → `/patient/case-gc01-fatima`: RTL “not a diagnosis” → teach-back → cashless or pay-and-claim (claim tracker).
@@ -252,7 +280,7 @@ Open http://localhost:3000 (or the Azure web URL). Guest mode — no login. Writ
 7. **KPIs / proof** → `/admin`: one number (false closures / critical recall) + human still in charge.
 8. **Path to pilot** → next ask: one Abu Dhabi screening programme + one insurer ([docs/pilot-plan.md](docs/pilot-plan.md)).
 
-API docs: http://localhost:8000/docs
+API docs: [pilot `/docs`](https://ca-rabt-api-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io/docs) or http://localhost:8000/docs
 
 ## API endpoints
 
@@ -286,7 +314,7 @@ Writes require `X-Rabt-Persona` (except ingest/webhook, which need `X-Rabt-Inges
 
 ## Responsible AI
 
-- **No diagnosis:** a lexicon in English and Arabic blocks diagnostic claims; Azure AI Content Safety is optional (off unless configured — check `GET /healthz`); every patient card carries a banner.
+- **No diagnosis:** a lexicon in English and Arabic blocks diagnostic claims; Azure AI Content Safety runs on the pilot via APIM → Foundry (check `GET /healthz`); every patient card carries a banner.
 - **Threat model:** [docs/threat-model.md](docs/threat-model.md) (STRIDE → code controls).
 - **Pilot plan:** [docs/pilot-plan.md](docs/pilot-plan.md). Load test script: `scripts/load_test.py` (local only).
 - **Deterministic safety path:** triage, escalation, navigation scoring and closure never use an LLM.
@@ -306,11 +334,11 @@ Details: [docs/responsible-ai.md](docs/responsible-ai.md) · [docs/assumptions-l
 
 ## Deploy / hosting
 
-- **Azure, provisioned by Terraform:** [`infra/terraform`](infra/terraform) has a thin root plus modules for the network, APIM AI gateway, Azure OpenAI, AI Search, Content Safety, Key Vault, storage, monitoring, governance and Container Apps. State lives in an Azure Storage account. Names follow `<type>-rabt-<env>-<region>` (for example `rg-rabt-pilot-sea`, `apim-rabt-pilot-sea`). Primary region is Singapore (`southeastasia`); Azure OpenAI and Content Safety run in Australia East because the models and Prompt Shields are not offered regionally in Singapore, so prompts are processed in Australia (see the Terraform README, Regions).
-- **GitHub Actions, service principal with a client secret, configured through repository secrets only (no repository variables):**
-  - `infra.yml`: `terraform plan` on pull requests that touch `infra/terraform`; `apply` on `main` or manual dispatch, behind the `pilot` environment approval.
-  - `deploy.yml`: builds the API and web images, pushes them to ACR and rolls them out to Container Apps, behind the same environment approval.
-  - Both workflows skip cleanly until the repository secrets are set. The list, the roles and rotation are in the Terraform README, First-time bootstrap.
+- **Live pilot URLs:** see [Pilot on Azure](#pilot-on-azure-live) above.
+- **Azure, provisioned by Terraform:** [`infra/terraform`](infra/terraform) — Container Apps + ACR, **Foundry** as the sole AI backend (OpenAI + Content Safety + Language on one AIServices account), **APIM AI gateway** (quotas, MI, semantic cache, traffic fragments, insurer A2A API), AI Search, Managed Redis, Key Vault, storage, App Insights, governance. Names follow `<type>-rabt-<env>-<region>` (e.g. `rg-rabt-pilot-sea`, `apim-rabt-pilot-sea`, `aif-rabt-pilot-aue`). Primary region Singapore (`southeastasia`); Foundry + Redis in Australia East for model / CS / cache capacity (see Terraform README, Regions).
+- **GitHub Actions** (repository secrets only):
+  - `infra.yml`: `terraform plan` on PRs; `apply` on `main` / `workflow_dispatch` (pilot environment).
+  - `deploy.yml`: build/push ACR images → roll Container Apps.
 - **Docker:** `services/orchestrator/Dockerfile` and `apps/web/Dockerfile` (bind `0.0.0.0:$PORT`).
 - **Local:** `make api` / `make web`, or `docker compose up`.
 
@@ -327,7 +355,7 @@ Details: [docs/responsible-ai.md](docs/responsible-ai.md) · [docs/assumptions-l
 | Next (pilot) | Description |
 |---|---|
 | Data | Azure Health Data Services (FHIR R4) + Event Grid / Service Bus; Synthea cohort |
-| AI | Optional Azure OpenAI rewrite for comms only; lexicon always on; Content Safety optional (see [docs/responsible-ai.md](docs/responsible-ai.md)) |
+| AI ops | Keep lexicon + Content Safety; tune semantic-cache threshold / budgets; portal evals on Foundry project `rabt-pilot` |
 | Identity | Entra ID / UAE PASS |
 | Pilot site | Malaffi + Sehatna FHIR integration; clinician / DoH sign-off |
 

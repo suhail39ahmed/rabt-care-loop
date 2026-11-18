@@ -4,8 +4,9 @@
 
 | Diagram | PNG |
 |---|---|
-| A — Target (Azure / Foundry) | [`docs/assets/architecture-target.png`](assets/architecture-target.png) · also `architecture.png` |
-| B — As-built local demo | [`docs/assets/architecture-asbuilt.png`](assets/architecture-asbuilt.png) |
+| A — Target (Azure / Foundry + APIM) | [`docs/assets/architecture-target.png`](assets/architecture-target.png) · also `architecture.png` |
+| A2 — **Azure pilot (as deployed)** | [`docs/assets/architecture-pilot.png`](assets/architecture-pilot.png) |
+| B — As-built (local + Azure LLM path) | [`docs/assets/architecture-asbuilt.png`](assets/architecture-asbuilt.png) |
 | C — Agent split | [`docs/assets/architecture-agent-split.png`](assets/architecture-agent-split.png) |
 | D — SC-01 sequence | [`docs/assets/architecture-sequence-sc01.png`](assets/architecture-sequence-sc01.png) |
 | E — Concern & expert-call loop (planned) | [`docs/assets/architecture-hitl-concern-loop.png`](assets/architecture-hitl-concern-loop.png) |
@@ -14,26 +15,35 @@
 
 Source `.mmd` files sit next to the PNGs if you need to re-render: `npx @mermaid-js/mermaid-cli -i file.mmd -o file.png -b white -s 2`
 
+### Live pilot endpoints
+
+| App / service | URL |
+|---|---|
+| Web | https://ca-rabt-web-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io |
+| API | https://ca-rabt-api-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io |
+| Insurer A2A | https://ca-rabt-insurer-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io |
+| APIM gateway | https://apim-rabt-pilot-sea.azure-api.net |
+
 ---
 
 **Stack honesty for the deck / judges**
 
 | Layer | What Rabt uses | What we do **not** use |
 |---|---|---|
-| Orchestration | Our **state machine** + **Coordinator** (FastAPI) | LangChain, LangGraph, AutoGen |
-| LLM agents (target) | **Microsoft Agent Framework** → **Azure OpenAI in Azure AI Foundry** | OpenAI.com keys as primary; LangChain chains |
-| LLM agents (today, local demo) | **Approved templates** (no cloud required). AF+Foundry path is coded but **off** until Azure env vars are set | — |
-| Tools | **MCP** servers (`fhir-mcp`, `directory-mcp`, `messaging-mcp`) | Ad-hoc unrestricted tool calling |
+| Orchestration | Our **state machine** + **Coordinator** (FastAPI on Container Apps) | LangChain, LangGraph, AutoGen |
+| LLM path (Azure pilot) | `llm_client` → **APIM AI gateway** → **Foundry AIServices** (`AI_ENABLED=true`) | Direct OpenAI.com keys; standalone Content Safety account |
+| LLM path (local) | **Approved templates** by default (`AI_ENABLED=false`) | — |
+| Tools | Signed **A2A** insurer; MCP stubs exist but **not** on the demo path | Ad-hoc unrestricted tool calling |
 | Safety path | Deterministic Python (triage, escalation, closure) — **no LLM** | LLM deciding urgency or closure |
 | HITL | `hitl.py` queue + board UI | Fully autonomous close |
 
-> **One line for slides:** *Rabt is a deterministic care-loop workflow; Azure AI Foundry (via Microsoft Agent Framework) is used only to draft patient-facing text inside guardrails — not to decide triage, escalation, or closure.*
+> **One line for slides:** *Rabt is a deterministic care-loop workflow; Foundry (via the APIM AI gateway) drafts patient-facing text inside guardrails — it never decides triage, escalation, or closure.*
 
 ---
 
 ## A. Target architecture (submission / Azure)
 
-Use this diagram in the deck. It matches the solution plan (§5).
+Use this diagram in the deck. PNG: [`architecture-target.png`](assets/architecture-target.png). Live deployment detail: [`architecture-pilot.png`](assets/architecture-pilot.png).
 
 ```mermaid
 flowchart LR
@@ -47,7 +57,7 @@ flowchart LR
     SB["Service Bus / local queue"]
   end
 
-  subgraph ORCH["Rabt orchestrator — FastAPI"]
+  subgraph ORCH["Rabt orchestrator — FastAPI on Container Apps"]
     SM["Case state machine"]
     CO["Coordinator supervisor"]
     HITL["HITL gates"]
@@ -55,19 +65,26 @@ flowchart LR
 
   subgraph AG["Agents"]
     DET["Deterministic<br/>DQ · Triage · Ownership<br/>Escalation · Navigator score · Closure"]
-    LLM["LLM-assisted via Agent Framework<br/>Comms · Reassurance · E-consult · Navigator rationale"]
+    LLM["LLM-assisted via llm_client<br/>Comms · Reassurance · Translate"]
   end
 
-  subgraph FOUNDRY["Azure AI Foundry"]
-    AOAI["Azure OpenAI chat deployment"]
-    CS["Content Safety"]
-    AIS["AI Search KB — optional RAG"]
+  subgraph GATE["APIM AI gateway"]
+    APIM["apim-rabt-pilot-sea<br/>quotas · MI · semantic cache"]
   end
 
-  subgraph MCP["MCP tool servers"]
-    MF["fhir-mcp"]
-    MD["directory-mcp"]
-    MM["messaging-mcp"]
+  subgraph FOUNDRY["Microsoft Foundry AIServices"]
+    AOAI["Azure OpenAI chat / embed"]
+    CS["Content Safety + Prompt Shields"]
+    LANG["Language PII"]
+  end
+
+  subgraph DATA["Retrieval + cache"]
+    AIS["AI Search KB"]
+    REDIS["Managed Redis"]
+  end
+
+  subgraph A2A["Signed A2A"]
+    INS["Demo insurer agent"]
   end
 
   subgraph UI["Apps"]
@@ -80,10 +97,13 @@ flowchart LR
   CO --> SM
   CO --> DET
   CO --> LLM
-  LLM --> AOAI
-  LLM --> CS
-  LLM --> AIS
-  CO --> MCP
+  LLM --> APIM
+  APIM --> AOAI
+  APIM --> CS
+  APIM --> LANG
+  APIM --> AIS
+  APIM -.-> REDIS
+  CO -->|HMAC| INS
   CO --> HITL
   HITL --> BRD
   CO --> PAT
@@ -92,19 +112,22 @@ flowchart LR
 
 ---
 
-## B. As-built today (local demo — what you can run now)
+## B. As-built (local demo + Azure pilot LLM path)
 
 ```mermaid
 flowchart TB
   WEB["Next.js apps<br/>patient · board · KPIs"]
-  API["FastAPI orchestrator :8000"]
+  API["FastAPI orchestrator"]
   LED["SQLite ledger<br/>cases · queue · approvals"]
   SM["state_machine.py"]
   CO["coordinator.py"]
   DET["agents/* deterministic"]
-  COM["comms agent<br/>templates first"]
-  REA["reassurance agent<br/>local KB markdown"]
+  COM["comms agent<br/>templates + optional LLM"]
+  REA["reassurance agent<br/>KB / Azure AI Search"]
   MCP["MCP server stubs"]
+  APIM["APIM AI gateway"]
+  FOU["Foundry AIServices"]
+  TPL["YAML templates AR/EN"]
 
   WEB <--> API
   API --> CO
@@ -113,13 +136,14 @@ flowchart TB
   CO --> DET
   CO --> COM
   CO --> REA
-  COM -.->|"only if AZURE_OPENAI_ENDPOINT set"| AF["Microsoft Agent Framework<br/>+ Azure OpenAI in Foundry"]
-  COM -->|"default today"| TPL["YAML templates AR/EN"]
+  COM -->|AI_ENABLED=true on Azure pilot| APIM
+  APIM --> FOU
+  COM -->|local / kill switch off| TPL
   MCP -.-> API
 ```
 
-**Default path today:** no LangChain, no Foundry call — templates + deterministic agents.  
-**Foundry path:** set `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_MODEL` (+ Content Safety); `comms/agent.py` uses `agent_framework.Agent` + `OpenAIChatClient`.
+**Local default:** templates + deterministic agents (`AI_ENABLED=false`).  
+**Azure pilot:** `AI_ENABLED=true` — `llm_client` → APIM (`LLM_BASE_URL`) → Foundry; Content Safety + Language PII on the same Foundry account via APIM paths.
 
 ---
 
@@ -191,10 +215,10 @@ sequenceDiagram
   Own-->>API: AwaitingOwner
   HITL->>API: accept ownership
   API->>Comms: draft message
-  alt Foundry configured
-    Comms->>Foundry: rewrite template
+  alt AI_ENABLED + APIM/Foundry
+    Comms->>Foundry: rewrite via APIM gateway
     Foundry-->>Comms: text + Content Safety
-  else Local demo
+  else Local / kill switch off
     Comms-->>API: static approved template
   end
   API->>Pat: result card + teach-back
@@ -345,4 +369,4 @@ The patient handles the paperwork steps. On `submitted` the insurer agent's `cla
 
 ## H. What to say if asked “Are you on Foundry or LangChain?”
 
-> We do **not** use LangChain. The product orchestration is our own FHIR-aligned state machine. For generative steps we use the **Microsoft Agent Framework** pointing at **Azure OpenAI hosted in Azure AI Foundry**, with Content Safety. Safety-critical steps (triage, escalation, closure) stay deterministic Python so an LLM cannot falsely close a case or miss a critical result. The local prototype runs fully on templates so judges can demo without cloud keys; Foundry lights up when Azure credentials are provided.
+> We do **not** use LangChain. The product orchestration is our own FHIR-aligned state machine. Generative steps go through **`llm_client` → APIM AI gateway → Microsoft Foundry** (OpenAI + Content Safety + Language on one AIServices account), with Redis semantic cache for opted-in RAG. Safety-critical steps (triage, escalation, closure) stay deterministic Python so an LLM cannot falsely close a case or miss a critical result. Local demos stay on templates (`AI_ENABLED=false`); the Azure pilot runs with `AI_ENABLED=true`.

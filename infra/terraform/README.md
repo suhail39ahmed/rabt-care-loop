@@ -6,19 +6,32 @@ GitHub Actions runs it (`.github/workflows/infra.yml`) and deploys the app image
 ```
 Browser ──HTTPS──► ca-rabt-web-pilot (Next.js) ──HTTPS──► ca-rabt-api-pilot (FastAPI)
                                                                  │ api-key (Container Apps secret)
+                                                                 │ AI_ENABLED=true on pilot
                                                                  ▼
-                                          apim-rabt-pilot-sea (AI gateway: TPM / rate limits / MI)
+                                          apim-rabt-pilot-sea (AI gateway: TPM / rate limits / MI /
+                                          semantic cache / traffic fragments / insurer A2A API)
                                                                  │ managed identity, no service keys
                          ┌───────────────────────────────────────┴──────────────┐
                          ▼                                                      ▼
               aif-rabt-pilot-aue (Foundry AIServices)               srch-rabt-pilot-sea
               OpenAI + Content Safety + Language PII                 (read-only KB index)
               project rabt-pilot ← APIM gateway + App Insights
+              redis-rabt-pilot-aue ← APIM external cache (semantic)
                  behind private endpoints when enable_private_networking = true
 
 ca-rabt-api-pilot ──signed A2A (HMAC)──► ca-rabt-insurer-pilot (synthetic payer agent, RABT_ROLE=insurer)
 caj-rabt-ingest-pilot (hourly job, ingestion identity): KB blob container ──► embeddings ──► srch-rabt-pilot-sea
 ```
+
+### Live pilot URLs
+
+| Resource | URL |
+|---|---|
+| Web | https://ca-rabt-web-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io |
+| API | https://ca-rabt-api-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io |
+| Insurer | https://ca-rabt-insurer-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io |
+| APIM gateway | https://apim-rabt-pilot-sea.azure-api.net |
+| Foundry endpoint | https://aif-rabt-pilot-aue.cognitiveservices.azure.com/ (app traffic goes via APIM) |
 
 > Never commit `terraform.tfvars`, `backend.hcl`, state, plans or keys (all are git-ignored).
 
@@ -70,6 +83,7 @@ infra/terraform/
 | Container Apps environment | `cae-rabt-pilot-sea` |
 | API / web apps | `ca-rabt-api-pilot` / `ca-rabt-web-pilot` |
 | Demo insurer agent (A2A) | `ca-rabt-insurer-pilot` (`enable_insurer_demo`) |
+| Managed Redis (semantic cache) | `redis-rabt-pilot-aue` (`enable_semantic_cache`) |
 | KB ingestion job | `caj-rabt-ingest-pilot` (`enable_kb_ingest_job`, `kb_ingest_cron`) |
 | Log Analytics / App Insights | `log-rabt-pilot-sea` / `appi-rabt-pilot-sea` |
 | Identities | `id-rabt-pilot-sea-app`, `id-rabt-pilot-sea-ingest` |
@@ -86,8 +100,8 @@ APIM, Key Vault, Storage, AI Search, Azure OpenAI and ACR names are global. If o
 | Hosting | `container_apps` | ACR (admin user off) and a Container Apps environment (VNet-integrated when private). Two apps run as a user-assigned identity with AcrPull. The APIM key and the webhook secret are Container Apps secrets, never env values in images |
 | AI backend | `foundry` | AIServices account + chat/embed deployments + project; App Insights connection; APIM registered as project AI gateway |
 | Retrieval | `search`, `storage` | RBAC-only Search. KB docs live in a private blob container; the ingestion script creates the index |
-| Gateway | `apim` | APIs (OpenAI, Search, Content Safety, Language PII) all backed by Foundry or Search. Quotas in policies |
-| Cache (optional) | `redis` | `enable_semantic_cache` |
+| Gateway | `apim` | APIs (OpenAI, Search, Content Safety, Language PII, insurer A2A) backed by Foundry / Search / insurer CA. Quotas, traffic fragments, semantic-cache policies |
+| Cache | `redis` | `enable_semantic_cache` (pilot **true**); score threshold `0.15`, TTL 7 days |
 | Secrets | `keyvault`, `keyvault_secret` | RBAC, purge protection, 90-day soft delete. Secrets carry an expiry |
 | Identity | `identity`, `rbac` | APIM, Search, app and ingestion identities with least-privilege roles |
 | Network (default on) | `network`, `private_endpoints` | VNet with a PE subnet, APIM subnet and apps subnet (NSG on each). Private endpoints and DNS for Foundry, Search, KV, Storage and Redis |
@@ -199,7 +213,7 @@ Notes:
 - **Model deployments can conflict (HTTP 409)** when created in parallel. Re-run `apply`, or use `-parallelism=1`.
 - **Fully private with an empty `deployer_ip_allowlist`**: Terraform can't reach Key Vault, so it doesn't write the secrets there. The API still gets the APIM key, because Container Apps secrets are set through the control plane. Add your IP temporarily to run the ingestion script.
 - The apps start on a placeholder image. The deploy workflow pushes the real images and switches the ports. Terraform ignores image and port changes after that.
-- `ai_enabled = false` (the default) keeps every AI path on approved templates even though the gateway is wired. Turn it on for a recorded AI demo, then turn it off again.
+- `ai_enabled = true` on the committed pilot tfvars turns on LLM paths through APIM. Set it back to `false` to force approved templates only (kill switch) without tearing down the gateway.
 
 ## Region, model availability and cost
 

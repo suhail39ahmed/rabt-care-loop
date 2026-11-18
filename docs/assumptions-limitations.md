@@ -8,7 +8,7 @@
 
 ## Limitations
 - Local demo defaults to an in-memory/SQLite ledger; HAPI FHIR is optional via Docker.
-- Azure OpenAI and Content Safety are optional; without them, approved templates are used unchanged.
+- Azure OpenAI and Content Safety are optional locally; without them (or with `AI_ENABLED=false`), approved templates are used unchanged. On the Azure pilot they are wired through APIM → Foundry with `AI_ENABLED=true`.
 - Arabic readability is not auto-scored.
 - SNOMED usage (if Synthea later) is prototype-only; licence must be checked for production.
 - Not a medical device; does not diagnose or prescribe.

@@ -1,15 +1,16 @@
 %%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#d7f1f4', 'primaryTextColor': '#0c1b2a', 'primaryBorderColor': '#0e8f9e', 'lineColor': '#3a4f63', 'secondaryColor': '#fff9ea', 'tertiaryColor': '#f3f5ff', 'fontFamily': 'Segoe UI, Arial'}}}%%
 flowchart TB
   WEB["Next.js apps<br/>patient · board · learn · KPIs"]
-  API["FastAPI orchestrator :8000"]
+  API["FastAPI orchestrator"]
   LED["SQLite ledger<br/>cases · queue · approvals"]
   SM["state_machine.py"]
   CO["coordinator.py"]
   DET["agents/* deterministic"]
-  COM["comms agent<br/>templates first"]
-  REA["reassurance agent<br/>local KB markdown"]
-  MCP["MCP server stubs"]
-  AF["Microsoft Agent Framework<br/>+ Azure OpenAI in Foundry"]
+  COM["comms agent<br/>templates + optional LLM"]
+  REA["reassurance agent<br/>KB / Azure AI Search"]
+  MCP["MCP server stubs<br/>not on demo path"]
+  APIM["APIM AI gateway<br/>apim-rabt-pilot-sea"]
+  FOU["Foundry AIServices<br/>OpenAI · CS · Language"]
   TPL["YAML templates AR/EN"]
 
   WEB <--> API
@@ -19,6 +20,7 @@ flowchart TB
   CO --> DET
   CO --> COM
   CO --> REA
-  COM -.->|only if Azure env set| AF
-  COM -->|default today| TPL
+  COM -->|AI_ENABLED=true on Azure pilot| APIM
+  APIM --> FOU
+  COM -->|local / kill switch off| TPL
   MCP -.-> API

@@ -44,6 +44,7 @@ CLINICIAN_ONLY_SUFFIXES = (
     "/callback/done",
     "/data-query/resolve",
     "/consent/resume",
+    "/owner",
 )
 
 

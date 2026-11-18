@@ -163,6 +163,30 @@ DEMO_PATIENTS = {
             {"reference": "Practitioner/gp-khan", "display": "Dr Khan (Family Physician)"}
         ],
     },
+    "mariam": {
+        "id": "pat-mariam",
+        "name": "Mariam (synthetic)",
+        "name_ar": "مريم",
+        "language": "ar",
+        "age": 55,
+        "sex": "female",
+        "plan_id": "plan-b",
+        "generalPractitioner": [
+            {"reference": "Practitioner/gp-khan", "display": "Dr Khan (Family Physician)"}
+        ],
+    },
+    "joel": {
+        "id": "pat-joel",
+        "name": "Joel (synthetic)",
+        "name_ar": "جويل",
+        "language": "en",
+        "age": 41,
+        "sex": "male",
+        "plan_id": "plan-b",
+        "generalPractitioner": [
+            {"reference": "Practitioner/gp-aisha", "display": "Dr Aisha (Family Physician)"}
+        ],
+    },
     "omar": {
         "id": "pat-omar",
         "name": "Omar (synthetic)",

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api, setApiPersona } from "@/lib/api";
 import { LiveTranslate } from "@/components/LiveTranslate";
 import { LangSwitcher } from "@/components/LangSwitcher";
+import { FLAG_CLASS, FLAG_LABEL, FollowupTracker, type FollowupFlag } from "@/components/FollowupTracker";
 import { STAFF_LOCALES, useLocale } from "@/lib/i18n";
 
 /** Board refresh interval while live updates are on (ms). */
@@ -44,6 +45,8 @@ type Case = {
   patient_id: string;
   result_display?: string;
   owner_name?: string;
+  owner_id?: string | null;
+  followup?: { flags: FollowupFlag[]; time_in_state_s?: number; sla_s?: number | null };
   ladder_step?: number;
   evidence?: Evidence & { patient_display_name?: string };
   timeline: Array<{ kind: string; label: string; detail: string; actor: string; at?: number }>;
@@ -106,6 +109,7 @@ type Approval = {
 const PERSONAS = [
   { id: "human:coordinator-sara", label: "Coordinator Sara" },
   { id: "human:gp-aisha", label: "Dr Aisha" },
+  { id: "human:gp-khan", label: "Dr Khan" },
   { id: "human:supervisor", label: "Supervisor" },
 ] as const;
 
@@ -158,7 +162,15 @@ function hasFlaggedDocument(c: Case) {
 
 /** A short fingerprint of what a coordinator sees for a case; a change highlights the row. */
 function signature(c: Case) {
-  return [c.state, c.urgency, c.ladder_step, c.owner_name, c.timeline.length, c.evidence?.claim?.status].join("|");
+  return [
+    c.state,
+    c.urgency,
+    c.ladder_step,
+    c.owner_name,
+    c.timeline.length,
+    c.evidence?.claim?.status,
+    (c.followup?.flags || []).map((f) => f.flag).join(","),
+  ].join("|");
 }
 
 export default function BoardPage() {
@@ -176,6 +188,7 @@ export default function BoardPage() {
   const [changed, setChanged] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<Filter>("all");
   const [loaded, setLoaded] = useState(false);
+  const [view, setView] = useState<"cases" | "tracker">("cases");
   const seen = useRef<Map<string, string>>(new Map());
   const selectedId = useRef<string | null>(null);
 
@@ -248,7 +261,9 @@ export default function BoardPage() {
 
   // Deep links from the demo tour: /board?focus=<case_id>
   useEffect(() => {
-    const focus = new URLSearchParams(window.location.search).get("focus");
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("view") === "tracker") setView("tracker");
+    const focus = params.get("focus");
     if (focus) openCase(focus).catch(() => setErr(s("Case {id} not found (the demo may have been reset).", { id: focus })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -440,7 +455,7 @@ export default function BoardPage() {
               setSelected(null);
               await api("/demo/reset", { method: "POST" });
               await refresh();
-              setFlash(s("Demo reset — {n} seeded cases restored.", { n: L.num(8) }));
+              setFlash(s("Demo reset — {n} seeded cases restored.", { n: L.num(10) }));
             }}
           >
             {s("Reset demo")}
@@ -474,6 +489,31 @@ export default function BoardPage() {
         <div className="banner success" role="status">
           {flash}
         </div>
+      ) : null}
+
+      <div className="view-toggle" role="group" aria-label={s("Board view")}>
+        <button type="button" aria-pressed={view === "cases"} onClick={() => setView("cases")}>
+          {s("Cases and queue")}
+        </button>
+        <button type="button" aria-pressed={view === "tracker"} onClick={() => setView("tracker")}>
+          {s("Follow-up tracker")}
+          <span className="count">{L.num(cases.filter((c) => (c.followup?.flags || []).length > 0).length)}</span>
+        </button>
+      </div>
+      {view === "tracker" ? (
+        <FollowupTracker
+          L={L}
+          persona={persona}
+          live={live}
+          stateLabel={humanizeState}
+          onOpen={(id) => {
+            openCase(id).catch((e) => setErr(String(e)));
+            requestAnimationFrame(() => document.getElementById("case-detail")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+          }}
+          onChanged={(id, msg) => {
+            afterAction(id, msg).catch((e) => setErr(String(e)));
+          }}
+        />
       ) : null}
 
       <div className="board-layout rise d3">
@@ -555,7 +595,9 @@ export default function BoardPage() {
                       return qc ? `${qc.result_display || q.case_id}${who ? ` · ${who}` : ""} · ` : "";
                     })()}
                   </span>
-                  {s(urgencyTag(q.urgency).text)} · {s(q.kind.replace(/_/g, " "))}
+                  {s(urgencyTag(q.urgency).text)} · {q.kind.startsWith("followup_") && q.kind.slice(9) in FLAG_LABEL
+                    ? `${s("Follow-up")}: ${s(FLAG_LABEL[q.kind.slice(9) as FollowupFlag["flag"]])}`
+                    : s(q.kind.replace(/_/g, " "))}
                   {q.ladder_step ? ` · ${s("ladder step {n}", { n: L.num(q.ladder_step) })}` : ""}
                 </div>
               </button>
@@ -611,8 +653,13 @@ export default function BoardPage() {
                 <strong data-src="record">{c.result_display || c.case_id}</strong>
                 <span className={`tag ${urgencyTag(c.urgency).cls}`}>{s(urgencyTag(c.urgency).text)}</span>
               </div>
-              {isAssisted(c) || hasFlaggedDocument(c) || c.evidence?.callback_requested || changed.has(c.case_id) ? (
+              {isAssisted(c) || hasFlaggedDocument(c) || c.evidence?.callback_requested || changed.has(c.case_id) || (c.followup?.flags || []).length ? (
                 <div className="chip-row tight">
+                  {(c.followup?.flags || []).map((f) => (
+                    <span key={f.flag} className={`tag ${FLAG_CLASS[f.flag]}`}>
+                      {s(FLAG_LABEL[f.flag])}
+                    </span>
+                  ))}
                   {isAssisted(c) ? <span className="tag assisted">{s("Assisted")}</span> : null}
                   {c.evidence?.callback_requested ? <span className="tag human">{s("Call requested")}</span> : null}
                   {hasFlaggedDocument(c) ? <span className="tag urgent">{s("Document quarantined")}</span> : null}
@@ -625,6 +672,10 @@ export default function BoardPage() {
                   {(c.evidence as { patient_display_name?: string } | undefined)?.patient_display_name || c.patient_id}
                 </span>
                 {c.ladder_step ? ` · L${c.ladder_step}` : ""}
+              </div>
+              <div className="muted row-owner">
+                {s("Owner")}:{" "}
+                {c.owner_name ? <span data-src="record">{c.owner_name}</span> : <strong>{s("Unowned")}</strong>}
               </div>
             </button>
           ))}
@@ -660,8 +711,35 @@ export default function BoardPage() {
                 {selected.result_display}
               </h2>
               <p className="muted">
-                <span data-src="record">{selected.case_id}</span> · {s("Owner")} <span data-src="record">{selected.owner_name || "—"}</span>
+                <span data-src="record">{selected.case_id}</span> · {s("Owner")}{" "}
+                {selected.owner_name ? <span data-src="record">{selected.owner_name}</span> : <strong>{s("Unowned")}</strong>}
               </p>
+              {(selected.followup?.flags || []).length || !selected.owner_id ? (
+                <div className="chip-row" style={{ alignItems: "center", marginBottom: "0.6rem" }}>
+                  {(selected.followup?.flags || []).map((f) => (
+                    <span key={f.flag} className={`tag ${FLAG_CLASS[f.flag]}`}>
+                      {s(FLAG_LABEL[f.flag])}
+                    </span>
+                  ))}
+                  {!["Closed", "ClosedByHuman"].includes(selected.state) ? (
+                    <button
+                      type="button"
+                      className="btn small-btn"
+                      onClick={async () => {
+                        try {
+                          setApiPersona(persona);
+                          await api(`/cases/${selected.case_id}/owner`, { method: "POST", body: "{}" });
+                          await afterAction(selected.case_id, s("Ownership updated"));
+                        } catch (e) {
+                          setErr(String(e));
+                        }
+                      }}
+                    >
+                      {s("Take ownership")}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               {isAssisted(selected) ? (
                 <div className="panel soft assisted-panel">
                   <strong>{s("Senior / assisted")}</strong>

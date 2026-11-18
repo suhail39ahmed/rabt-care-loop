@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
-from app import demo_clock
+from app import demo_clock, followup
 from app.auth import (
     as_actor,
     canonical_persona,
@@ -45,16 +45,29 @@ ledger = Ledger(db_path=os.environ.get("RABT_DB", _DB))
 coordinator = Coordinator(ledger)
 DEMO_IDS: dict[str, str] = {}
 _tick_task: asyncio.Task | None = None
+# The background tick and Reset demo never overlap: reset deletes the ledger file the tick may be writing to.
+_ledger_lock: asyncio.Lock | None = None
+
+
+def _lock() -> asyncio.Lock:
+    """One lock per event loop (created at startup; tests start a fresh loop per client)."""
+    global _ledger_lock
+    loop = asyncio.get_running_loop()
+    if _ledger_lock is None or getattr(_ledger_lock, "_rabt_loop", None) is not loop:
+        _ledger_lock = asyncio.Lock()
+        _ledger_lock._rabt_loop = loop  # type: ignore[attr-defined]
+    return _ledger_lock
 
 
 async def _background_tick() -> None:
     while True:
         try:
-            db = await ledger.connect()
-            try:
-                await coordinator.tick(db)
-            finally:
-                await db.close()
+            async with _lock():
+                db = await ledger.connect()
+                try:
+                    await coordinator.tick(db)
+                finally:
+                    await db.close()
         except Exception:
             pass
         await asyncio.sleep(5)
@@ -261,45 +274,49 @@ async def healthz():
 async def demo_advance(minutes: float = Query(15, gt=0, le=1440)):
     """Fast-forward the demo clock and run one HITL/ladder tick."""
     offset = demo_clock.advance(minutes)
-    db = await ledger.connect()
-    try:
-        tick_result = await coordinator.tick(db)
-        return {
-            "ok": True,
-            "advanced_minutes": minutes,
-            "offset_seconds": offset,
-            "now": demo_clock.now(),
-            "tick": tick_result,
-        }
-    finally:
-        await db.close()
+    async with _lock():
+        db = await ledger.connect()
+        try:
+            tick_result = await coordinator.tick(db)
+        finally:
+            await db.close()
+    return {
+        "ok": True,
+        "advanced_minutes": minutes,
+        "offset_seconds": offset,
+        "now": demo_clock.now(),
+        "tick": tick_result,
+    }
 
 
 @app.post("/demo/reset")
 async def demo_reset():
     """Wipe and reseed the shared demo (persona-protected)."""
     global DEMO_IDS
-    demo_clock.reset()
-    db_path = ledger.db_path
-    try:
-        if os.path.exists(db_path):
-            os.remove(db_path)
-    except OSError:
-        # Fall back to truncating tables if the file is locked
-        db = await ledger.connect()
+    async with _lock():
+        demo_clock.reset()
+        db_path = ledger.db_path
         try:
-            for table in (
-                "approval_votes",
-                "approvals",
-                "queue_items",
-                "cases",
-                "processed_events",
-            ):
-                await db.execute(f"DELETE FROM {table}")
-            await db.commit()
-        finally:
-            await db.close()
-    DEMO_IDS = await seed_demo(ledger, coordinator)
+            for path in (db_path, f"{db_path}-journal", f"{db_path}-wal", f"{db_path}-shm"):
+                if os.path.exists(path):
+                    os.remove(path)
+        except OSError:
+            # Fall back to truncating tables if the file is locked
+            db = await ledger.connect()
+            try:
+                for table in (
+                    "approval_votes",
+                    "approvals",
+                    "queue_items",
+                    "followup_flags",
+                    "cases",
+                    "processed_events",
+                ):
+                    await db.execute(f"DELETE FROM {table}")
+                await db.commit()
+            finally:
+                await db.close()
+        DEMO_IDS = await seed_demo(ledger, coordinator)
     return {
         "ok": True,
         "cases": DEMO_IDS,
@@ -354,7 +371,71 @@ async def demo_index():
 async def list_cases():
     db = await ledger.connect()
     try:
-        return await ledger.list_cases(db)
+        now = demo_clock.now()
+        return [{**c, "followup": followup.view(c, now)} for c in await ledger.list_cases(db)]
+    finally:
+        await db.close()
+
+
+@app.get("/followups")
+async def followups(flag: str | None = Query(default=None, pattern="^(overdue|missed_visit|result_delayed|unowned)$")):
+    """Follow-up tracker: every open case with its owner, time in the current step against the step's target,
+    and its flags (overdue, missed visit, result delayed, unowned)."""
+    db = await ledger.connect()
+    try:
+        now = demo_clock.now()
+        rows = []
+        for c in await ledger.list_cases(db):
+            if not followup.is_open(c):
+                continue
+            v = followup.view(c, now)
+            names = [f["flag"] for f in v["flags"]]
+            if flag and flag not in names:
+                continue
+            ev = c.get("evidence") or {}
+            rows.append(
+                {
+                    "case_id": c["case_id"],
+                    "patient": ev.get("patient_display_name") or c.get("patient_id"),
+                    "result_display": c.get("result_display"),
+                    "state": c.get("state"),
+                    "urgency": c.get("urgency"),
+                    "assisted": bool(ev.get("assisted")),
+                    **v,
+                }
+            )
+        rows.sort(key=lambda r: (-len(r["flags"]), -(r["time_in_state_s"] or 0)))
+        all_open = [followup.compute_flags(c, now) for c in await ledger.list_cases(db) if followup.is_open(c)]
+        counts = {f: sum(1 for fl in all_open if any(x["flag"] == f for x in fl)) for f in followup.FLAGS}
+        counts["flagged"] = sum(1 for fl in all_open if fl)
+        counts["open"] = len(all_open)
+        return {"now": now, "sla_minutes": followup.sla_minutes(), "counts": counts, "cases": rows}
+    finally:
+        await db.close()
+
+
+class OwnerIn(BaseModel):
+    owner: str | None = Field(default=None, description="Persona to assign; omit to take the case yourself.")
+    reason: str = Field(default="", max_length=200)
+
+
+@app.post("/cases/{case_id}/owner")
+async def set_owner(case_id: str, request: Request, body: OwnerIn | None = None):
+    """Take or reassign ownership of an open case (clinician personas). Clears the Unowned flag."""
+    body = body or OwnerIn()
+    me = _persona(request)
+    target = as_actor(body.owner) if body.owner else me
+    who = followup.OWNERS.get(target)
+    if not who:
+        raise HTTPException(400, f"unknown owner: {target}")
+    db = await ledger.connect()
+    try:
+        reason = body.reason or ("took ownership" if target == me else "reassigned on the follow-up tracker")
+        return await coordinator.set_owner(db, case_id, actor=me or "human:board", reason=reason, **who)
+    except CaseNotFound:
+        raise HTTPException(404, "case not found") from None
+    except IllegalTransition as e:
+        raise HTTPException(409, str(e)) from e
     finally:
         await db.close()
 
@@ -366,7 +447,7 @@ async def get_case(case_id: str):
         case = await ledger.get_case(db, case_id)
         if not case:
             raise HTTPException(404, "case not found")
-        return public_case_view(case)
+        return {**public_case_view(case), "followup": followup.view(case)}
     finally:
         await db.close()
 

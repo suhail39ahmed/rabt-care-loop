@@ -78,6 +78,16 @@ CREATE TABLE IF NOT EXISTS queue_items (
   created_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS followup_flags (
+  case_id TEXT NOT NULL,
+  flag TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  raised_at REAL NOT NULL,
+  cleared_at REAL,
+  queue_id TEXT,
+  PRIMARY KEY (case_id, flag)
+);
+
 CREATE TABLE IF NOT EXISTS fhir_resources (
   resource_type TEXT NOT NULL,
   resource_id TEXT NOT NULL,
@@ -227,6 +237,31 @@ class Ledger:
             {"at": time.time(), "kind": kind, "label": label, "detail": detail, "actor": actor}
         )
         await self.update_case(db, case_id, timeline=timeline)
+
+    async def active_followup_flags(self, db: aiosqlite.Connection) -> dict[tuple[str, str], dict[str, Any]]:
+        cur = await db.execute("SELECT * FROM followup_flags WHERE active = 1")
+        return {(r["case_id"], r["flag"]): dict(r) for r in await cur.fetchall()}
+
+    async def raise_followup_flag(
+        self, db: aiosqlite.Connection, case_id: str, flag: str, at: float, queue_id: str | None
+    ) -> None:
+        await db.execute(
+            """
+            INSERT INTO followup_flags(case_id, flag, active, raised_at, cleared_at, queue_id)
+            VALUES (?, ?, 1, ?, NULL, ?)
+            ON CONFLICT(case_id, flag) DO UPDATE SET
+              active = 1, raised_at = excluded.raised_at, cleared_at = NULL, queue_id = excluded.queue_id
+            """,
+            (case_id, flag, at, queue_id),
+        )
+        await db.commit()
+
+    async def clear_followup_flag(self, db: aiosqlite.Connection, case_id: str, flag: str, at: float) -> None:
+        await db.execute(
+            "UPDATE followup_flags SET active = 0, cleared_at = ? WHERE case_id = ? AND flag = ?",
+            (at, case_id, flag),
+        )
+        await db.commit()
 
     async def put_fhir(self, db: aiosqlite.Connection, resource: dict[str, Any]) -> dict[str, Any]:
         rtype = resource["resourceType"]

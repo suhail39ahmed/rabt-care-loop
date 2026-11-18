@@ -23,7 +23,7 @@ from agents.ownership import assign as ownership_agent
 from agents.reassurance import agent as reassurance_agent
 from agents.triage import engine as triage_agent
 
-from app import hitl
+from app import followup, hitl
 from app.case_errors import CaseNotFound
 from app.contracts import TOOL_SCOPES, DelegationResult
 from app.ledger import Ledger
@@ -706,6 +706,12 @@ class Coordinator:
         )
         evidence = dict(case.get("evidence") or {})
         evidence["booked_option"] = option_id
+        from app import demo_clock
+
+        slot_h = opt.get("earliest_slot_hours")
+        if slot_h is None:
+            slot_h = float(opt.get("earliest_days") or 2) * 24
+        evidence["appointment_at"] = demo_clock.now() + float(slot_h) * 3600
         path = opt.get("payment") or {}
         evidence["payment_mode"] = path.get("mode", "cashless")
         if not verified:
@@ -797,6 +803,9 @@ class Coordinator:
         evidence = dict(case.get("evidence") or {})
         evidence["attended_encounter"] = True
         evidence["attendance_note"] = note
+        from app import demo_clock
+
+        evidence["attended_at"] = demo_clock.now()
         # Do not set outcome_document here — requires POST /outcome
         await self.ledger.update_case(db, case_id, evidence=evidence)
         await self._apply(
@@ -1291,6 +1300,7 @@ class Coordinator:
             }
         )
         await self.ledger.update_case(db, case_id, messages=messages)
+        await self.ensure_owner(db, case_id)
         return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
 
     async def advance_ladder(self, db: aiosqlite.Connection, case_id: str) -> dict[str, Any] | None:
@@ -1399,7 +1409,107 @@ class Coordinator:
                 )
             else:
                 kept_open.append(case_id)
-        return {"timed_out": timed_out, "ladder_advanced": advanced, "kept_open": kept_open}
+        followups = await self.followup_sweep(db)
+        return {"timed_out": timed_out, "ladder_advanced": advanced, "kept_open": kept_open, "followups": followups}
+
+    # ---- Follow-up tracker and ownership guarantee -------------------------------------------------------------
+
+    async def set_owner(
+        self, db: aiosqlite.Connection, case_id: str, *, owner_id: str, owner_name: str, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Assign or reassign the accountable owner. Recorded in the case timeline; never changes the state."""
+        case = await self.ledger.get_case(db, case_id)
+        if not case:
+            raise CaseNotFound(case_id)
+        if not followup.is_open(case):
+            raise IllegalTransition(f"case already {case['state']}")
+        before = case.get("owner_name") or "none"
+        await self.ledger.update_case(db, case_id, owner_id=owner_id, owner_name=owner_name)
+        await self.ledger.append_timeline(
+            db,
+            case_id,
+            kind="fact" if actor.startswith("human:") else "calculated",
+            label="Owner assigned" if before == "none" else "Owner reassigned",
+            detail=f"{before} → {owner_name} · {reason}",
+            actor=actor,
+        )
+        await self.followup_sweep(db, case_ids={case_id})
+        return await self.ledger.get_case(db, case_id)  # type: ignore[return-value]
+
+    async def ensure_owner(self, db: aiosqlite.Connection, case_id: str, *, force: bool = False) -> bool:
+        """Ownership guarantee: an open escalated or critical case without an owner gets the on-call supervisor
+        straight away; any other unowned case gets the coordinator on duty after a short grace period."""
+        from app import demo_clock
+
+        case = await self.ledger.get_case(db, case_id)
+        if not case or not followup.is_open(case) or case.get("owner_id"):
+            return False
+        if followup.needs_on_call(case):
+            who, why = followup.ON_CALL, "escalated or critical case had no owner: on-call assigned"
+        elif force or demo_clock.now() - float(case.get("created_at") or 0) > followup.unowned_grace_minutes() * 60:
+            who, why = followup.COORDINATOR_ON_DUTY, "unowned past the grace period: coordinator on duty assigned"
+        else:
+            return False
+        await self.set_owner(db, case_id, actor="system:followup", reason=why, **who)
+        return True
+
+    async def followup_sweep(self, db: aiosqlite.Connection, *, case_ids: set[str] | None = None) -> dict[str, Any]:
+        """Re-check follow-up flags. A flag that appears raises one coordinator queue item and a timeline entry;
+        a flag that clears resolves its queue item. Never transitions or closes a case."""
+        from app import demo_clock
+
+        now = demo_clock.now()
+        raised: list[list[str]] = []
+        cleared: list[list[str]] = []
+        assigned: list[str] = []
+        active = await self.ledger.active_followup_flags(db)
+        if case_ids is None:
+            cases = await self.ledger.list_cases(db)
+        else:
+            cases = [c for c in [await self.ledger.get_case(db, i) for i in sorted(case_ids)] if c]
+        for case in cases:
+            cid = case["case_id"]
+            if followup.is_open(case) and not case.get("owner_id") and await self.ensure_owner(db, cid):
+                assigned.append(cid)
+                case = await self.ledger.get_case(db, cid) or case
+                active = await self.ledger.active_followup_flags(db)
+            current = {f["flag"]: f for f in followup.compute_flags(case, now)}
+            for flag, f in current.items():
+                if (cid, flag) in active:
+                    continue
+                qid = await hitl.enqueue(
+                    db,
+                    cid,
+                    f"followup_{flag}",
+                    followup.FLAG_TITLES[flag],
+                    urgency=case.get("urgency"),
+                    detail=f"{case.get('state')} · {f.get('reason')} · owner {case.get('owner_name') or 'none'}",
+                )
+                await self.ledger.raise_followup_flag(db, cid, flag, now, qid)
+                await self.ledger.append_timeline(
+                    db,
+                    cid,
+                    kind="calculated",
+                    label=f"Follow-up flag: {flag.replace('_', ' ')}",
+                    detail=f"{f.get('reason')} · owner {case.get('owner_name') or 'none'}",
+                    actor="agent:followup",
+                )
+                raised.append([cid, flag])
+            for acid, flag in list(active):
+                if acid != cid or flag in current:
+                    continue
+                await self.ledger.clear_followup_flag(db, cid, flag, now)
+                await hitl.resolve_open_for_case(db, cid, kind=f"followup_{flag}")
+                await self.ledger.append_timeline(
+                    db,
+                    cid,
+                    kind="calculated",
+                    label=f"Follow-up flag cleared: {flag.replace('_', ' ')}",
+                    detail=case.get("state") or "",
+                    actor="agent:followup",
+                )
+                cleared.append([cid, flag])
+        return {"raised": raised, "cleared": cleared, "owners_assigned": assigned}
 
     async def human_handle_escalation(
         self, db: aiosqlite.Connection, case_id: str, actor: str
@@ -1535,7 +1645,10 @@ class Coordinator:
         reason: str,
         evidence: dict[str, Any],
     ) -> dict[str, Any]:
+        from app import demo_clock
+
         rec = transition(current, target, actor=actor, reason=reason, evidence=evidence)
+        rec["at"] = demo_clock.now()  # when the case entered `target`; the follow-up tracker times steps from it
         case = await self.ledger.get_case(db, case_id)
         prov = case["provenance"]  # type: ignore[index]
         prov.append(rec)
@@ -1550,4 +1663,6 @@ class Coordinator:
         await self.ledger.append_timeline(
             db, case_id, kind=kind, label=f"{current.value} → {target.value}", detail=reason, actor=actor
         )
+        # Clear (or raise) follow-up flags as soon as the step changes, not only on the next tick.
+        await self.followup_sweep(db, case_ids={case_id})
         return rec

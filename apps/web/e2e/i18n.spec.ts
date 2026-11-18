@@ -7,7 +7,7 @@ import { PATIENT_LOCALES, RTL, untranslated } from "./helpers";
  * must have no hard-coded English UI text. Writes per-locale coverage to test-results/i18n-coverage.json.
  */
 const PATIENT_ROUTES = ["/patient/case-gc01-fatima", "/patient/case-gc05-fit", "/patient/case-gc10-closure", "/patient/case-gc11-senior"];
-const STAFF_ROUTES = ["/", "/board?focus=case-gc02-bp", "/admin", "/insurer", "/no-such-page"];
+const STAFF_ROUTES = ["/", "/board?focus=case-gc02-bp", "/board?view=tracker", "/admin", "/insurer", "/no-such-page"];
 const coverage: Record<string, { checked: number; untranslated: number }> = {};
 
 function record(lang: string, total: number, bad: number) {

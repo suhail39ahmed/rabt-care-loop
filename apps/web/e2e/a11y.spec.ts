@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
-const ROUTES = ["/", "/board?focus=case-gc02-bp", "/admin", "/insurer", "/patient/case-gc05-fit", "/patient/case-gc11-senior"];
+const ROUTES = ["/", "/board?focus=case-gc02-bp", "/board?view=tracker", "/admin", "/insurer", "/patient/case-gc05-fit", "/patient/case-gc11-senior"];
 
 for (const width of [390, 1440]) {
   for (const lang of ["en", "ar"]) {

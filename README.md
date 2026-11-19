@@ -8,7 +8,7 @@ Rabt is a working prototype for the Future Health Digital Innovation Challenge, 
 
 | | |
 |---|---|
-| Demo video | _To be added_ |
+| Demo video | [Watch the 3-minute demo](https://youtu.be/oNDw0Tx2mu4) |
 | Live web | https://ca-rabt-web-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io |
 | Live API | https://ca-rabt-api-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io · [`/healthz`](https://ca-rabt-api-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io/healthz) · [`/docs`](https://ca-rabt-api-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io/docs) |
 | Insurer agent | https://ca-rabt-insurer-pilot.salmonwave-97737d51.southeastasia.azurecontainerapps.io (scales to zero when idle) |

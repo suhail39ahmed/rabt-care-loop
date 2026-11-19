@@ -10,6 +10,7 @@ data/rabt.db
 data/synthea/output/
 node_modules/
 apps/web/.next/
+*.tsbuildinfo
 apps/web/out/
 dist/
 *.egg-info/

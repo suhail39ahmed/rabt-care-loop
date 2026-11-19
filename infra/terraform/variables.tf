@@ -236,7 +236,7 @@ variable "search_index_name" {
 variable "enable_foundry" {
   description = <<-EOT
     Required true. Foundry (AIServices) is the sole AI backend (OpenAI deployments, Content Safety,
-    Language PII) behind the APIM AI gateway. See docs/foundry-ai.md.
+    Language PII) behind the APIM AI gateway.
   EOT
   type        = bool
   default     = true
